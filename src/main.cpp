@@ -14,8 +14,7 @@ using namespace geometrycentral::surface;
 
 void addSmoothestVertexDirectionField(VertexPositionGeometry &geometry,
                                       SurfaceMesh &mesh,
-                                      polyscope::SurfaceMesh &psMesh)
-{
+                                      polyscope::SurfaceMesh &psMesh) {
   VertexData<Vector2> field = computeSmoothestVertexDirectionField(geometry);
   geometry.requireVertexTangentBasis();
   VertexData<Vector3> vBasisX(mesh);
@@ -26,8 +25,7 @@ void addSmoothestVertexDirectionField(VertexPositionGeometry &geometry,
   psMesh.addVertexIntrinsicVectorQuantity("vectors", field);
 }
 
-void addFaceAreas(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscope::SurfaceMesh &psMesh)
-{
+void addFaceAreas(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscope::SurfaceMesh &psMesh) {
   geometry.requireFaceAreas();
 
   FaceData<double> areas(mesh);
@@ -39,14 +37,12 @@ void addFaceAreas(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscope
   psMesh.addFaceScalarQuantity("areas", areas);
 }
 
-void addFaceNormals(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscope::SurfaceMesh &psMesh)
-{
+void addFaceNormals(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscope::SurfaceMesh &psMesh) {
   geometry.requireFaceNormals();
   psMesh.addFaceVectorQuantity("normals", geometry.faceNormals);
 }
 
-void addCurvatures(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscope::SurfaceMesh &psMesh)
-{
+void addCurvatures(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscope::SurfaceMesh &psMesh) {
   geometry.requireVertexGaussianCurvatures();
   geometry.requireVertexMeanCurvatures();
   geometry.requireVertexMinPrincipalCurvatures();
@@ -60,14 +56,12 @@ void addCurvatures(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscop
 
 /*Dihedral edge*/
 
-void addEdgeDihedralAngle(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscope::SurfaceMesh &psMesh)
-{
+void addEdgeDihedralAngle(VertexPositionGeometry &geometry, SurfaceMesh &mesh, polyscope::SurfaceMesh &psMesh) {
   geometry.requireEdgeDihedralAngles();
   psMesh.addEdgeScalarQuantity("dihedral_angles", geometry.edgeDihedralAngles);
 }
 
-int main()
-{
+int main() {
   torch::Tensor tensor = torch::rand({2, 3});
   std::cout << tensor << std::endl;
 

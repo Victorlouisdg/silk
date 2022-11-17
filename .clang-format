@@ -34,7 +34,7 @@ AllowShortBlocksOnASingleLine: false
 BinPackArguments: false
 BinPackParameters: false
 
-# Line width (don't exceed 100).
+# Line width (don't exceed 120).
 ColumnLimit: 119
 
 # Cause initializer lists to have one member initialized per line, in the case
@@ -57,22 +57,6 @@ AccessModifierOffset: -1
 # function calls) but the overall result is better since it will allow
 # alignment to work properly with different tab width settings.
 ContinuationIndentWidth: 4
-
-# This tries to match Blender's style as much as possible. One
-BreakBeforeBraces: Custom
-BraceWrapping: {
-    AfterClass: 'false'
-    AfterControlStatement: 'false'
-    AfterEnum : 'false'
-    AfterFunction : 'true'
-    AfterNamespace : 'false'
-    AfterStruct : 'false'
-    AfterUnion : 'false'
-    BeforeCatch : 'true'
-    BeforeElse : 'true'
-    IndentBraces : 'false'
-    AfterObjCDeclaration: 'true'
-}
 
 # For switch statements, indent the cases.
 IndentCaseLabels: true
