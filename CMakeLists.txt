@@ -14,3 +14,9 @@ add_subdirectory("libs/polyscope")
 add_subdirectory("libs/geometry-central")
 target_link_libraries(silk polyscope)
 target_link_libraries(silk geometry-central)
+
+# Executables for the examples
+add_executable(two_triangles examples/two_triangles/two_triangles.cpp)
+target_link_libraries(two_triangles "${TORCH_LIBRARIES}")
+target_link_libraries(two_triangles polyscope)
+target_link_libraries(two_triangles geometry-central)
