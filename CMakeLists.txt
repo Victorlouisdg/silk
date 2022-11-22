@@ -1,43 +1,48 @@
-cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.9)
 project(silk)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-add_executable(silk src/main.cpp)
+# Find packages
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
-# Torch
-list(APPEND CMAKE_PREFIX_PATH "libs/libtorch")
-find_package(Torch REQUIRED)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
-target_link_libraries(silk "${TORCH_LIBRARIES}")
-set_property(TARGET silk PROPERTY CXX_STANDARD 17)
-
-# add_subdirectory("libs/TinyAD")
+message("Building silk in " ${CMAKE_BUILD_TYPE} " mode")
 add_subdirectory("libs/TinyAD-Examples")
 
-# PolyScope and Geometry-central
-# add_subdirectory("libs/polyscope")
-# add_subdirectory("libs/geometry-central")
-target_link_libraries(silk polyscope)
-target_link_libraries(silk geometry-central)
 
-# Executables for the examples
-# add_executable(two_triangles_pytorch examples/two_triangles/two_triangles_pytorch.cpp)
-# target_link_libraries(two_triangles_pytorch polyscope)
-# target_link_libraries(two_triangles_pytorch geometry-central)
-# target_link_libraries(two_triangles_pytorch "${TORCH_LIBRARIES}")
+file(GLOB_RECURSE SILK_HEADERS include/*.hh)
+file(GLOB_RECURSE SILK_SOURCES src/*.cpp)
+add_library(silk ${SILK_SOURCES} ${SILK_HEADERS})
+message(${SILK_HEADERS})
+message(${SILK_SOURCES})
 
-# Executables for the examples
-add_executable(two_triangles_tinyad_dense examples/two_triangles/two_triangles_tinyad_dense.cpp)
-target_link_libraries(two_triangles_tinyad_dense polyscope)
-target_link_libraries(two_triangles_tinyad_dense geometry-central)
-target_link_libraries(two_triangles_tinyad_dense TinyAD)
+target_compile_features(silk PUBLIC cxx_std_17)
 
-add_executable(two_triangles_tinyad_sparse examples/two_triangles/two_triangles_tinyad_sparse.cpp)
-target_link_libraries(two_triangles_tinyad_sparse polyscope)
-target_link_libraries(two_triangles_tinyad_sparse geometry-central)
-target_link_libraries(two_triangles_tinyad_sparse TinyAD)
-target_link_libraries(two_triangles_tinyad_sparse TinyAD-Examples)
+target_include_directories(silk PUBLIC
+    include
+)
 
+target_link_libraries(silk PUBLIC
+    polyscope
+    geometry-central
+    TinyAD
+    TinyAD-Examples
+)
+
+function(add_app app_name main)
+    message(STATUS "Adding app ${app_name}")
+    add_executable(${app_name} ${main})
+    add_dependencies(${app_name} silk)
+    target_link_libraries(${app_name} PUBLIC silk)
+endfunction()
+
+
+file(GLOB_RECURSE SILK_EXAMPLES examples/*.cpp)
+foreach(main ${SILK_EXAMPLES})
+    get_filename_component(app_name ${main} NAME_WE)
+    get_filename_component(dir ${main} DIRECTORY)
+    get_filename_component(dir_name ${dir} NAME)
+    add_app(${app_name} ${main})
+endforeach()
