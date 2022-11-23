@@ -19,6 +19,7 @@
 
 #include "silk/energies.hh"
 #include "silk/simple_meshes.hh"
+#include "silk/visualization.hh"
 
 using namespace std;
 using namespace geometrycentral;
@@ -28,58 +29,45 @@ geometrycentral::Vector3 to_geometrycentral(const Eigen::Vector3d &_v) {
   return geometrycentral::Vector3{_v.x(), _v.y(), _v.z()};
 }
 
-FaceData<Eigen::Matrix2d> computeDm_invs(ManifoldSurfaceMesh &mesh,
-                                         VertexPositionGeometry &geometry,
-                                         Eigen::MatrixXd &P) {
-  FaceData<Eigen::Matrix2d> Dm_invs(mesh);
+VertexData<Eigen::Vector2d> makeRestPositionsProjected(ManifoldSurfaceMesh &mesh, VertexPositionGeometry &geometry) {
+  geometry.requireVertexPositions();
+  VertexData<Eigen::Vector2d> vertexRestPositions(mesh);
+  for (Vertex v : mesh.vertices()) {
+    Vector3 position = geometry.vertexPositions[v];
+    vertexRestPositions[v] = Eigen::Vector2d({position.x, position.y});
+  }
+  return vertexRestPositions;
+}
 
-  geometry.requireVertexIndices();
+void callback(ManifoldSurfaceMesh &mesh,
+              VertexPositionGeometry &geometry,
+              vector<VertexData<Eigen::Vector3d>> &positionsHistory) {
 
-  for (auto f : mesh.faces()) {
-    // Get 3D vertex positions
+  // Ensures refresh
+  auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
+  int i = silk::state::gui_frame % positionsHistory.size();
 
-    Vertex v0 = f.halfedge().vertex();
-    Vertex v1 = f.halfedge().next().vertex();
-    Vertex v2 = f.halfedge().next().next().vertex();
-
-    int i = geometry.vertexIndices[v0];
-    int j = geometry.vertexIndices[v1];
-    int k = geometry.vertexIndices[v2];
-
-    Eigen::Vector2d u0 = P.row(i);
-    Eigen::Vector2d u1 = P.row(j);
-    Eigen::Vector2d u2 = P.row(k);
-
-    Eigen::Matrix2d Dm;
-    Dm.col(0) = u1 - u0;
-    Dm.col(1) = u2 - u0;
-
-    Eigen::Matrix2d Dm_inv = Dm.inverse();
-    Dm_invs[f] = Dm_inv;
-  };
-  return Dm_invs;
+  for (Vertex v : mesh.vertices()) {
+    geometry.vertexPositions[v] = to_geometrycentral(positionsHistory[i][v]);
+  }
+  silk::state::gui_frame++;
 }
 
 int main() {
-  unique_ptr<ManifoldSurfaceMesh> mesh;
-  unique_ptr<VertexPositionGeometry> geometry;
-  std::tie(mesh, geometry) = silk::makeTwoTriangleSquare();
+  unique_ptr<ManifoldSurfaceMesh> mesh_pointer;
+  unique_ptr<VertexPositionGeometry> geometry_pointer;
+  std::tie(mesh_pointer, geometry_pointer) = silk::makeTwoTriangleSquare();
+  ManifoldSurfaceMesh &mesh = *mesh_pointer;
+  VertexPositionGeometry &geometry = *geometry_pointer;
 
-  Eigen::MatrixXd V;               // 3D vertex positions
-  Eigen::MatrixXi F;               // Mesh faces
-  to_igl(*mesh, *geometry, V, F);  // Convert mesh to igl format
-
-  Eigen::MatrixXd P = V.leftCols<2>();  // 2D parametrization positions
-  P.row(3) = Eigen::Vector2d(0.0, 1.0);
-
-  geometry->requireVertexIndices();
-  FaceData<Eigen::Matrix2d> Dm_invs = computeDm_invs(*mesh, *geometry, P);
+  geometry.requireVertexPositions();
+  VertexData<Eigen::Vector2d> vertexRestPositions = makeRestPositionsProjected(mesh, geometry);
 
   // Set up a function with 3D vertex positions as variables
-  auto meshEnergyFunction = TinyAD::scalar_function<3>(mesh->vertices());
+  auto meshTriangleEnergies = TinyAD::scalar_function<3>(mesh.vertices());
 
   // Add objective term per face. Each connecting 3 vertices.
-  meshEnergyFunction.add_elements<3>(mesh->faces(), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
+  meshTriangleEnergies.add_elements<3>(mesh.faces(), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
     // Evaluate element using either double or TinyAD::Double
     using T = TINYAD_SCALAR_TYPE(element);
 
@@ -92,45 +80,77 @@ int main() {
     Eigen::Vector3<T> x1 = element.variables(v1);
     Eigen::Vector3<T> x2 = element.variables(v2);
 
-    int i = geometry->vertexIndices[v0];
-    int j = geometry->vertexIndices[v1];
-    int k = geometry->vertexIndices[v2];
-
-    Eigen::Vector2d u0 = P.row(i);
-    Eigen::Vector2d u1 = P.row(j);
-    Eigen::Vector2d u2 = P.row(k);
+    Eigen::Vector2d u0 = vertexRestPositions[v0];
+    Eigen::Vector2d u1 = vertexRestPositions[v1];
+    Eigen::Vector2d u2 = vertexRestPositions[v2];
 
     Eigen::Matrix<T, 3, 2> F = silk::deformationGradient(x0, x1, x2, u0, u1, u2);
     T E = silk::baraffWitkinStretchEnergy(F);
     return E;
   });
 
-  geometry->requireVertexPositions();
-  Eigen::VectorXd x = meshEnergyFunction.x_from_data([&](Vertex v) { return to_eigen(geometry->vertexPositions[v]); });
+  Eigen::VectorXd initialPositions = meshTriangleEnergies.x_from_data(
+      [&](Vertex v) { return to_eigen(geometry.vertexPositions[v]); });
 
-  auto [E, g, H_proj] = meshEnergyFunction.eval_with_hessian_proj(x);
+  int system_size = initialPositions.size();
+  Eigen::VectorXd initialVelocities = Eigen::VectorXd::Zero(system_size);
+  initialVelocities[2] = 0.01;
 
-  Eigen::VectorXd f0 = g;
-  Eigen::SparseMatrix<double> dfdx = H_proj;
+  vector<Eigen::VectorXd> positionsHistory;
+  vector<Eigen::VectorXd> velocitiesHistory;
+  vector<Eigen::VectorXd> energyHistory;
+  positionsHistory.push_back(initialPositions);
 
-  int amount_of_vertices = geometry->vertexPositions.size();
-  int system_size = 3 * amount_of_vertices;
+  double dt = 0.1;
 
-  Eigen::VectorXd masses = Eigen::VectorXd::Ones(system_size);
+  Eigen::VectorXd positions = initialPositions;
+  Eigen::VectorXd velocities = initialVelocities;
+  for (int i = 0; i < 50; i++) {
+    positions += velocities * dt;
+    positionsHistory.push_back(positions);
+  }
 
-  std::cout << masses << std::endl;
+  // map<string, VertexData<double>> vertexData;
+  // vertexData["velocities"]
 
-  Eigen::VectorXd accelerations = f0.array() / masses.array();
-  Eigen::VectorXd velocities = Eigen::VectorXd::Zero(system_size);
-  double dt = 0.01;
-  velocities += accelerations * dt;
+  vector<VertexData<Eigen::Vector3d>> positionsHistoryData;
 
-  Eigen::VectorXd positions = x;
-  positions += velocities * dt;
+  for (Eigen::VectorXd positionsFlat : positionsHistory) {
+    VertexData<Eigen::Vector3d> positionsData(mesh);
+    meshTriangleEnergies.x_to_data(positionsFlat, [&](Vertex v, const Eigen::Vector3d &p) { positionsData[v] = p; });
+    positionsHistoryData.push_back(positionsData);
+  }
 
-  std::cout << "x:\n" << x << std::endl;
-  std::cout << "positions:\n" << positions << std::endl;
+  polyscope::init();
+  polyscope::view::upDir = polyscope::UpDir::ZUp;
+  auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
+  // psMesh->addVertexParameterizationQuantity("restPosition", vertexRestPositions);
+  polyscope::state::userCallback = [&]() -> void { callback(mesh, geometry, positionsHistoryData); };
+  polyscope::show();
 
-  Eigen::SparseMatrix<double> identity_matrix(system_size, system_size);
-  identity_matrix.setIdentity();
+  // auto [E, g, H_proj] = meshEnergyFunction.eval_with_hessian_proj(x);
+
+  // Eigen::VectorXd f0 = g;
+  // Eigen::SparseMatrix<double> dfdx = H_proj;
+
+  // int amount_of_vertices = geometry->vertexPositions.size();
+  // int system_size = 3 * amount_of_vertices;
+
+  // Eigen::VectorXd masses = Eigen::VectorXd::Ones(system_size);
+
+  // std::cout << masses << std::endl;
+
+  // Eigen::VectorXd accelerations = f0.array() / masses.array();
+  // Eigen::VectorXd velocities = Eigen::VectorXd::Zero(system_size);
+  // double dt = 0.01;
+  // velocities += accelerations * dt;
+
+  // Eigen::VectorXd positions = x;
+  // positions += velocities * dt;
+
+  // std::cout << "x:\n" << x << std::endl;
+  // std::cout << "positions:\n" << positions << std::endl;
+
+  // Eigen::SparseMatrix<double> identity_matrix(system_size, system_size);
+  // identity_matrix.setIdentity();
 }
