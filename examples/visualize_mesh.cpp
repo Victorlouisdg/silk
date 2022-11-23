@@ -62,10 +62,10 @@ void addEdgeDihedralAngle(VertexPositionGeometry &geometry, SurfaceMesh &mesh, p
   psMesh.addEdgeScalarQuantity("dihedral_angles", geometry.edgeDihedralAngles);
 }
 
-void visualizeMesh() {
+void visualizeMesh(std::string meshPath) {
   std::unique_ptr<SurfaceMesh> mesh;
   std::unique_ptr<VertexPositionGeometry> geometry;
-  std::tie(mesh, geometry) = readManifoldSurfaceMesh("../meshes/shirt_wrinkled.obj");
+  std::tie(mesh, geometry) = readManifoldSurfaceMesh(meshPath);
 
   polyscope::init();
 
@@ -80,26 +80,7 @@ void visualizeMesh() {
   polyscope::show();
 }
 
-int main() {
-  // PolyScope part
-  std::vector<size_t> triangle{0, 1, 2};
-  std::vector<std::vector<size_t>> triangles{triangle};
-
-  Vector3 v0{0.0, 0.0, 0.0};
-  Vector3 v1{1.0, 0.0, 0.0};
-  Vector3 v2{0.5, 0.5, 0.0};
-
-  std::vector<Vector3> vertexCoordinates{v0, v1, v2};
-
-  SimplePolygonMesh simpleMesh(triangles, vertexCoordinates);
-
-  std::unique_ptr<SurfaceMesh> mesh;
-  std::unique_ptr<VertexPositionGeometry> geometry;
-  std::tie(mesh, geometry) = makeManifoldSurfaceMeshAndGeometry(simpleMesh.polygons, simpleMesh.vertexCoordinates);
-
-  polyscope::init();
-  polyscope::view::upDir = polyscope::UpDir::ZUp;
-  auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry->vertexPositions, mesh->getFaceVertexList());
-  addFaceNormals(*geometry, *mesh, *psMesh);
-  polyscope::show();
+int main(int argc, char *argv[]) {
+  std::string meshPath = argv[1];
+  visualizeMesh(meshPath);
 }

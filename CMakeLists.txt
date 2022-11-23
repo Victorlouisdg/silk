@@ -38,7 +38,6 @@ function(add_app app_name main)
     target_link_libraries(${app_name} PUBLIC silk)
 endfunction()
 
-
 file(GLOB_RECURSE SILK_EXAMPLES examples/*.cpp)
 foreach(main ${SILK_EXAMPLES})
     get_filename_component(app_name ${main} NAME_WE)
