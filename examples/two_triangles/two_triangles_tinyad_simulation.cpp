@@ -44,6 +44,10 @@ void callback(ManifoldSurfaceMesh &mesh,
               vector<VertexData<Eigen::Vector3d>> &positionsHistory,
               map<string, vector<VertexData<Eigen::Vector3d>>> &vector3dVertexDataHistories) {
 
+  int frame = silk::state::playback_frame_counter % positionsHistory.size();
+
+  ImGui::Text("Frame %d", frame);
+
   // Play-pause logic
   if (silk::state::playback_paused) {
     if (ImGui ::Button("Resume playback")) {
@@ -60,21 +64,21 @@ void callback(ManifoldSurfaceMesh &mesh,
 
   // Ensures refresh
   auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
-  int i = silk::state::playback_frame_counter % positionsHistory.size();
 
   for (Vertex v : mesh.vertices()) {
-    geometry.vertexPositions[v] = to_geometrycentral(positionsHistory[i][v]);
+    geometry.vertexPositions[v] = to_geometrycentral(positionsHistory[frame][v]);
   }
 
-  for (auto const &[key, val] : vector3dVertexDataHistories) {
-    psMesh->addVertexVectorQuantity(key, val[i]);
+  for (auto const &[name, dataHistory] : vector3dVertexDataHistories) {
+    if (frame >= dataHistory.size()) {
+      continue;
+    }
+    psMesh->addVertexVectorQuantity(name, dataHistory[frame]);
   }
 
   silk::state::playback_frame_counter++;
 }
 
-// TinyAD::scalar_function<3, double, VertexSet>
-// TinyAD::ScalarFunction<3, double, Vertex>
 vector<VertexData<Eigen::Vector3d>> flatHistoryToGeometryCentral(
     vector<Eigen::VectorXd> flatVectorHistory,
     ManifoldSurfaceMesh &mesh,
@@ -131,32 +135,42 @@ int main() {
 
   int system_size = initialPositions.size();
   Eigen::VectorXd initialVelocities = Eigen::VectorXd::Zero(system_size);
-  initialVelocities[2] = 0.01;
+  initialVelocities[0] = 0.1;
 
   vector<Eigen::VectorXd> positionsHistory;
   vector<Eigen::VectorXd> velocitiesHistory;
-  vector<Eigen::VectorXd> energyHistory;
+  vector<Eigen::VectorXd> forcesHistory;
 
   positionsHistory.push_back(initialPositions);
   velocitiesHistory.push_back(initialVelocities);
 
   double dt = 0.1;
 
+  // For the simulation part, we mostly work with flat (3*n_vertices, 1) column vectors.
   Eigen::VectorXd positions = initialPositions;
   Eigen::VectorXd velocities = initialVelocities;
-  Eigen::VectorXd accelerations = 0.1 * Eigen::VectorXd::Ones(system_size);
+  Eigen::VectorXd forces = 0.1 * Eigen::VectorXd::Ones(system_size);
+  Eigen::VectorXd masses = Eigen::VectorXd::Ones(system_size);
 
   for (int i = 0; i < 50; i++) {
+
+    auto [energy, gradient, projectedHessian] = meshTriangleEnergies.eval_with_hessian_proj(positions);
+    std::cout << "Energy: " << energy << std::endl;
+    Eigen::VectorXd forces = -gradient;
+
+    Eigen::VectorXd accelerations = forces.array() / masses.array();
     velocities += accelerations * dt;
     positions += velocities * dt;
 
     positionsHistory.push_back(positions);
     velocitiesHistory.push_back(velocities);
+    forcesHistory.push_back(forces);
   }
 
   map<string, vector<VertexData<Eigen::Vector3d>>> vector3dVertexDataHistories;
   vector3dVertexDataHistories["velocities"] = flatHistoryToGeometryCentral(
       velocitiesHistory, mesh, meshTriangleEnergies);
+  vector3dVertexDataHistories["forces"] = flatHistoryToGeometryCentral(forcesHistory, mesh, meshTriangleEnergies);
 
   vector<VertexData<Eigen::Vector3d>> positionsHistoryData = flatHistoryToGeometryCentral(
       positionsHistory, mesh, meshTriangleEnergies);
@@ -172,8 +186,6 @@ int main() {
     callback(mesh, geometry, positionsHistoryData, vector3dVertexDataHistories);
   };
   polyscope::show();
-
-  // auto [E, g, H_proj] = meshEnergyFunction.eval_with_hessian_proj(x);
 
   // Eigen::VectorXd f0 = g;
   // Eigen::SparseMatrix<double> dfdx = H_proj;
