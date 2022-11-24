@@ -15,8 +15,9 @@ using namespace geometrycentral::surface;
 
 namespace silk {
 namespace state {
-int gui_frame = 0;
-}
+int playback_frame_counter = 0;
+bool playback_paused = false;
+}  // namespace state
 
 void addSmoothestVertexDirectionField(VertexPositionGeometry &geometry,
                                       SurfaceMesh &mesh,

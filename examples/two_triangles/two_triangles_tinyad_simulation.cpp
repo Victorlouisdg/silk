@@ -41,16 +41,53 @@ VertexData<Eigen::Vector2d> makeRestPositionsProjected(ManifoldSurfaceMesh &mesh
 
 void callback(ManifoldSurfaceMesh &mesh,
               VertexPositionGeometry &geometry,
-              vector<VertexData<Eigen::Vector3d>> &positionsHistory) {
+              vector<VertexData<Eigen::Vector3d>> &positionsHistory,
+              map<string, vector<VertexData<Eigen::Vector3d>>> &vector3dVertexDataHistories) {
+
+  // Play-pause logic
+  if (silk::state::playback_paused) {
+    if (ImGui ::Button("Resume playback")) {
+      silk::state::playback_paused = false;
+    }
+  } else {
+    if (ImGui::Button("Pause playback")) {
+      silk::state::playback_paused = true;
+    }
+  }
+  if (silk::state::playback_paused) {
+    return;
+  }
 
   // Ensures refresh
   auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
-  int i = silk::state::gui_frame % positionsHistory.size();
+  int i = silk::state::playback_frame_counter % positionsHistory.size();
 
   for (Vertex v : mesh.vertices()) {
     geometry.vertexPositions[v] = to_geometrycentral(positionsHistory[i][v]);
   }
-  silk::state::gui_frame++;
+
+  for (auto const &[key, val] : vector3dVertexDataHistories) {
+    psMesh->addVertexVectorQuantity(key, val[i]);
+  }
+
+  silk::state::playback_frame_counter++;
+}
+
+// TinyAD::scalar_function<3, double, VertexSet>
+// TinyAD::ScalarFunction<3, double, Vertex>
+vector<VertexData<Eigen::Vector3d>> flatHistoryToGeometryCentral(
+    vector<Eigen::VectorXd> flatVectorHistory,
+    ManifoldSurfaceMesh &mesh,
+    TinyAD::ScalarFunction<3, double, Vertex> &tinyadFunction) {
+
+  vector<VertexData<Eigen::Vector3d>> vertexDataHistory;
+  for (Eigen::VectorXd flatVector : flatVectorHistory) {
+    VertexData<Eigen::Vector3d> vertexData(mesh);
+    tinyadFunction.x_to_data(flatVector,
+                             [&](Vertex v, const Eigen::Vector3d &vectorData) { vertexData[v] = vectorData; });
+    vertexDataHistory.push_back(vertexData);
+  }
+  return vertexDataHistory;
 }
 
 int main() {
@@ -64,7 +101,7 @@ int main() {
   VertexData<Eigen::Vector2d> vertexRestPositions = makeRestPositionsProjected(mesh, geometry);
 
   // Set up a function with 3D vertex positions as variables
-  auto meshTriangleEnergies = TinyAD::scalar_function<3>(mesh.vertices());
+  auto meshTriangleEnergies = TinyAD::scalar_function<3, double, VertexSet>(mesh.vertices());
 
   // Add objective term per face. Each connecting 3 vertices.
   meshTriangleEnergies.add_elements<3>(mesh.faces(), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
@@ -99,33 +136,41 @@ int main() {
   vector<Eigen::VectorXd> positionsHistory;
   vector<Eigen::VectorXd> velocitiesHistory;
   vector<Eigen::VectorXd> energyHistory;
+
   positionsHistory.push_back(initialPositions);
+  velocitiesHistory.push_back(initialVelocities);
 
   double dt = 0.1;
 
   Eigen::VectorXd positions = initialPositions;
   Eigen::VectorXd velocities = initialVelocities;
+  Eigen::VectorXd accelerations = 0.1 * Eigen::VectorXd::Ones(system_size);
+
   for (int i = 0; i < 50; i++) {
+    velocities += accelerations * dt;
     positions += velocities * dt;
+
     positionsHistory.push_back(positions);
+    velocitiesHistory.push_back(velocities);
   }
 
-  // map<string, VertexData<double>> vertexData;
-  // vertexData["velocities"]
+  map<string, vector<VertexData<Eigen::Vector3d>>> vector3dVertexDataHistories;
+  vector3dVertexDataHistories["velocities"] = flatHistoryToGeometryCentral(
+      velocitiesHistory, mesh, meshTriangleEnergies);
 
-  vector<VertexData<Eigen::Vector3d>> positionsHistoryData;
-
-  for (Eigen::VectorXd positionsFlat : positionsHistory) {
-    VertexData<Eigen::Vector3d> positionsData(mesh);
-    meshTriangleEnergies.x_to_data(positionsFlat, [&](Vertex v, const Eigen::Vector3d &p) { positionsData[v] = p; });
-    positionsHistoryData.push_back(positionsData);
-  }
+  vector<VertexData<Eigen::Vector3d>> positionsHistoryData = flatHistoryToGeometryCentral(
+      positionsHistory, mesh, meshTriangleEnergies);
 
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;
+  polyscope::options::automaticallyComputeSceneExtents = false;
+  polyscope::state::lengthScale = 1.;
+  polyscope::state::boundingBox = std::tuple<glm::vec3, glm::vec3>{{-2., -2., -2.}, {2., 2., 2.}};
   auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
   // psMesh->addVertexParameterizationQuantity("restPosition", vertexRestPositions);
-  polyscope::state::userCallback = [&]() -> void { callback(mesh, geometry, positionsHistoryData); };
+  polyscope::state::userCallback = [&]() -> void {
+    callback(mesh, geometry, positionsHistoryData, vector3dVertexDataHistories);
+  };
   polyscope::show();
 
   // auto [E, g, H_proj] = meshEnergyFunction.eval_with_hessian_proj(x);
