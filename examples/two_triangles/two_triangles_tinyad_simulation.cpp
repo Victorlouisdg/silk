@@ -39,6 +39,26 @@ VertexData<Eigen::Vector2d> makeRestPositionsProjected(ManifoldSurfaceMesh &mesh
   return vertexRestPositions;
 }
 
+void drawSimulatedMesh(int frame,
+                       ManifoldSurfaceMesh &mesh,
+                       VertexPositionGeometry &geometry,
+                       vector<VertexData<Eigen::Vector3d>> &positionsHistory,
+                       map<string, vector<VertexData<Eigen::Vector3d>>> &vector3dVertexDataHistories) {
+  // Ensures refresh
+  auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
+
+  for (Vertex v : mesh.vertices()) {
+    geometry.vertexPositions[v] = to_geometrycentral(positionsHistory[frame][v]);
+  }
+
+  for (auto const &[name, dataHistory] : vector3dVertexDataHistories) {
+    if (frame >= dataHistory.size()) {
+      continue;
+    }
+    psMesh->addVertexVectorQuantity(name, dataHistory[frame]);
+  }
+}
+
 void callback(ManifoldSurfaceMesh &mesh,
               VertexPositionGeometry &geometry,
               vector<VertexData<Eigen::Vector3d>> &positionsHistory,
@@ -47,6 +67,18 @@ void callback(ManifoldSurfaceMesh &mesh,
   int frame = silk::state::playback_frame_counter % positionsHistory.size();
 
   ImGui::Text("Frame %d", frame);
+
+  if (ImGui ::Button("Next frame")) {
+    silk::state::playback_frame_counter++;
+    frame = silk::state::playback_frame_counter % positionsHistory.size();
+    drawSimulatedMesh(frame, mesh, geometry, positionsHistory, vector3dVertexDataHistories);
+  }
+
+  if (ImGui ::Button("Previous frame")) {
+    silk::state::playback_frame_counter--;
+    frame = silk::state::playback_frame_counter % positionsHistory.size();
+    drawSimulatedMesh(frame, mesh, geometry, positionsHistory, vector3dVertexDataHistories);
+  }
 
   // Play-pause logic
   if (silk::state::playback_paused) {
@@ -62,20 +94,7 @@ void callback(ManifoldSurfaceMesh &mesh,
     return;
   }
 
-  // Ensures refresh
-  auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
-
-  for (Vertex v : mesh.vertices()) {
-    geometry.vertexPositions[v] = to_geometrycentral(positionsHistory[frame][v]);
-  }
-
-  for (auto const &[name, dataHistory] : vector3dVertexDataHistories) {
-    if (frame >= dataHistory.size()) {
-      continue;
-    }
-    psMesh->addVertexVectorQuantity(name, dataHistory[frame]);
-  }
-
+  drawSimulatedMesh(frame, mesh, geometry, positionsHistory, vector3dVertexDataHistories);
   silk::state::playback_frame_counter++;
 }
 
@@ -152,7 +171,7 @@ int main() {
   Eigen::VectorXd forces = 0.1 * Eigen::VectorXd::Ones(system_size);
   Eigen::VectorXd masses = Eigen::VectorXd::Ones(system_size);
 
-  for (int i = 0; i < 50; i++) {
+  for (int i = 0; i < 100; i++) {
 
     auto [energy, gradient, projectedHessian] = meshTriangleEnergies.eval_with_hessian_proj(positions);
     std::cout << "Energy: " << energy << std::endl;
