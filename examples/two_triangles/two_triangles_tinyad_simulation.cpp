@@ -113,6 +113,12 @@ vector<VertexData<Eigen::Vector3d>> flatHistoryToGeometryCentral(
   return vertexDataHistory;
 }
 
+Eigen::Vector3d make3D(Eigen::Vector2d v2) {
+  Eigen::Vector3d v3;
+  v3 << v2, 0.0;
+  return v3;
+}
+
 int main() {
   unique_ptr<ManifoldSurfaceMesh> mesh_pointer;
   unique_ptr<VertexPositionGeometry> geometry_pointer;
@@ -145,16 +151,25 @@ int main() {
     Eigen::Vector2d u2 = vertexRestPositions[v2];
 
     Eigen::Matrix<T, 3, 2> F = silk::deformationGradient(x0, x1, x2, u0, u1, u2);
-    T E = silk::baraffWitkinStretchEnergy(F);
-    return E;
+    T stretchPotential = silk::baraffWitkinStretchPotential(F);
+
+    Eigen::Vector3d restNormal = make3D(u1 - u0).cross(make3D(u2 - u0));
+    double restArea = restNormal.norm() / 2.0;
+
+    double stretchStiffness = 100.0;
+
+    T energy = stretchStiffness * restArea * stretchPotential;
+
+    return energy;
   });
 
   Eigen::VectorXd initialPositions = meshTriangleEnergies.x_from_data(
       [&](Vertex v) { return to_eigen(geometry.vertexPositions[v]); });
 
+  int vertexCount = mesh.nVertices();
   int system_size = initialPositions.size();
   Eigen::VectorXd initialVelocities = Eigen::VectorXd::Zero(system_size);
-  initialVelocities[0] = 0.1;
+  initialVelocities[6] = 0.1;
 
   vector<Eigen::VectorXd> positionsHistory;
   vector<Eigen::VectorXd> velocitiesHistory;
@@ -163,6 +178,7 @@ int main() {
   positionsHistory.push_back(initialPositions);
   velocitiesHistory.push_back(initialVelocities);
 
+  double standard_gravity = -9.81; /* in m/s^2 */
   double dt = 0.1;
 
   // For the simulation part, we mostly work with flat (3*n_vertices, 1) column vectors.
@@ -171,9 +187,35 @@ int main() {
   // Eigen::VectorXd forces = Eigen::VectorXd::Ones(system_size);
   Eigen::VectorXd masses = 0.1 * Eigen::VectorXd::Ones(system_size);
 
+  Eigen::SparseMatrix<double> identity_matrix(system_size, system_size);
+  identity_matrix.setIdentity();
+
   Eigen::SparseMatrix<double> mass_matrix(system_size, system_size);
   mass_matrix.setIdentity();
   mass_matrix *= 0.1;
+
+  // Set up gravity
+  Eigen::VectorXd gravityAccelerations = Eigen::VectorXd::Zero(system_size);
+  gravityAccelerations(Eigen::seqN(2, vertexCount, 3)) = standard_gravity * Eigen::VectorXd::Ones(vertexCount);
+  Eigen::VectorXd gravityForces = mass_matrix * gravityAccelerations;
+
+  std::vector<int> pinnedVertices;
+  pinnedVertices.push_back(1);
+
+  // TODO document
+  Eigen::SparseMatrix<double> S(system_size, system_size);
+  S.setIdentity();
+  S.coeffRef(0, 0) = 0;
+  S.coeffRef(1, 1) = 0;
+  S.coeffRef(2, 2) = 0;
+  S.coeffRef(3, 3) = 0;
+  S.coeffRef(4, 4) = 0;
+  S.coeffRef(5, 5) = 0;
+  Eigen::VectorXd z = Eigen::VectorXd::Zero(system_size);
+
+  // for (int i : pinnedVertices) {
+  //   S.block(i, i, 3, 3) = 0.0;
+  // }
 
   for (int i = 0; i < 100; i++) {
 
@@ -188,13 +230,31 @@ int main() {
     Eigen::SparseMatrix<double> dfdx = -projectedHessian;
     Eigen::SparseMatrix<double> M = mass_matrix;
 
+    f0 += gravityForces;
+
     Eigen::SparseMatrix<double> A = M - (h * h) * dfdx;
     Eigen::VectorXd b = h * (f0 + h * (dfdx * v0));
 
-    Eigen::VectorXd delta_v(system_size);
+    Eigen::SparseMatrix<double> I = identity_matrix;
+
+    // SparseMatrix<float> S = create_S_matrix();
+    Eigen::SparseMatrix<double> ST = Eigen::SparseMatrix<double>(S.transpose());
+    Eigen::SparseMatrix<double> LHS = (S * A * ST) + I - S;
+    Eigen::VectorXd c = b - A * z;
+    Eigen::VectorXd rhs = S * c;
+
     Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper> cg;
-    cg.compute(A);
-    delta_v = cg.solve(b);
+    Eigen::VectorXd y(system_size);
+
+    cg.compute(LHS);
+    y = cg.solve(rhs);
+
+    Eigen::VectorXd delta_v = y + z;
+
+    // Non-filtered way:
+    // Eigen::VectorXd delta_v(system_size);
+    // cg.compute(A);
+    // delta_v = cg.solve(b);
 
     std::cout << "#iterations:     " << cg.iterations() << std::endl;
     std::cout << "estimated error: " << cg.error() << std::endl;

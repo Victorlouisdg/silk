@@ -41,7 +41,7 @@ Eigen::Matrix<T3, 3, 2> deformationGradient(Eigen::Vector3<T3> vertexPosition0,
   return F;
 };
 
-template<typename T> T baraffWitkinStretchEnergy(Eigen::Matrix<T, 3, 2> deformationGradient) {
+template<typename T> T baraffWitkinStretchPotential(Eigen::Matrix<T, 3, 2> deformationGradient) {
   Eigen::Matrix<T, 3, 2> F = deformationGradient;
   Eigen::Matrix<T, 3, 1> wu = F.col(0);
   Eigen::Matrix<T, 3, 1> wv = F.col(1);
