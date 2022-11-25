@@ -122,7 +122,7 @@ Eigen::Vector3d make3D(Eigen::Vector2d v2) {
 int main() {
   unique_ptr<ManifoldSurfaceMesh> mesh_pointer;
   unique_ptr<VertexPositionGeometry> geometry_pointer;
-  std::tie(mesh_pointer, geometry_pointer) = silk::makeTwoTriangleSquare();
+  std::tie(mesh_pointer, geometry_pointer) = silk::makeSquare();
   ManifoldSurfaceMesh &mesh = *mesh_pointer;
   VertexPositionGeometry &geometry = *geometry_pointer;
 
@@ -156,7 +156,7 @@ int main() {
     Eigen::Vector3d restNormal = make3D(u1 - u0).cross(make3D(u2 - u0));
     double restArea = restNormal.norm() / 2.0;
 
-    double stretchStiffness = 100.0;
+    double stretchStiffness = 10000.0;
 
     T energy = stretchStiffness * restArea * stretchPotential;
 
@@ -169,7 +169,7 @@ int main() {
   int vertexCount = mesh.nVertices();
   int system_size = initialPositions.size();
   Eigen::VectorXd initialVelocities = Eigen::VectorXd::Zero(system_size);
-  initialVelocities[6] = 0.1;
+  // initialVelocities[6] = 0.1;
 
   vector<Eigen::VectorXd> positionsHistory;
   vector<Eigen::VectorXd> velocitiesHistory;

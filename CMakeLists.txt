@@ -1,16 +1,21 @@
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.16)
+
 project(silk)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+set(LIBIGL_RESTRICTED_TRIANGLE ON)
+list(PREPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(libigl)
+igl_include_optional(restricted triangle)
+
 # Find packages
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 message("Building silk in " ${CMAKE_BUILD_TYPE} " mode")
 add_subdirectory("libs/TinyAD-Examples")
-
 
 file(GLOB_RECURSE SILK_HEADERS include/*.hh)
 file(GLOB_RECURSE SILK_SOURCES src/*.cpp)
@@ -22,6 +27,7 @@ target_compile_features(silk PUBLIC cxx_std_17)
 
 target_include_directories(silk PUBLIC
     include
+    # libs/triangle
 )
 
 target_link_libraries(silk PUBLIC
@@ -29,6 +35,8 @@ target_link_libraries(silk PUBLIC
     geometry-central
     TinyAD
     TinyAD-Examples
+    igl::core
+    igl_restricted::triangle
 )
 
 function(add_app app_name main)

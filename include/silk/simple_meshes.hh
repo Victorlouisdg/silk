@@ -13,5 +13,6 @@ using namespace geometrycentral::surface;
 namespace silk {
 
 tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeTwoTriangleSquare();
+tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeSquare();
 
 }  // namespace silk
