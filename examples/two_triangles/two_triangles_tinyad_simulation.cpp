@@ -168,8 +168,12 @@ int main() {
   // For the simulation part, we mostly work with flat (3*n_vertices, 1) column vectors.
   Eigen::VectorXd positions = initialPositions;
   Eigen::VectorXd velocities = initialVelocities;
-  Eigen::VectorXd forces = 0.1 * Eigen::VectorXd::Ones(system_size);
-  Eigen::VectorXd masses = Eigen::VectorXd::Ones(system_size);
+  // Eigen::VectorXd forces = Eigen::VectorXd::Ones(system_size);
+  Eigen::VectorXd masses = 0.1 * Eigen::VectorXd::Ones(system_size);
+
+  Eigen::SparseMatrix<double> mass_matrix(system_size, system_size);
+  mass_matrix.setIdentity();
+  mass_matrix *= 0.1;
 
   for (int i = 0; i < 100; i++) {
 
@@ -177,8 +181,28 @@ int main() {
     std::cout << "Energy: " << energy << std::endl;
     Eigen::VectorXd forces = -gradient;
 
-    Eigen::VectorXd accelerations = forces.array() / masses.array();
-    velocities += accelerations * dt;
+    double h = dt;
+    Eigen::VectorXd x0 = positions;
+    Eigen::VectorXd v0 = velocities;
+    Eigen::VectorXd f0 = forces;
+    Eigen::SparseMatrix<double> dfdx = -projectedHessian;
+    Eigen::SparseMatrix<double> M = mass_matrix;
+
+    Eigen::SparseMatrix<double> A = M - (h * h) * dfdx;
+    Eigen::VectorXd b = h * (f0 + h * (dfdx * v0));
+
+    Eigen::VectorXd delta_v(system_size);
+    Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper> cg;
+    cg.compute(A);
+    delta_v = cg.solve(b);
+
+    std::cout << "#iterations:     " << cg.iterations() << std::endl;
+    std::cout << "estimated error: " << cg.error() << std::endl;
+    // The explicit way:
+    // Eigen::VectorXd accelerations = forces.array() / masses.array();
+    // velocities += accelerations * dt;
+
+    velocities += delta_v;
     positions += velocities * dt;
 
     positionsHistory.push_back(positions);
@@ -205,28 +229,4 @@ int main() {
     callback(mesh, geometry, positionsHistoryData, vector3dVertexDataHistories);
   };
   polyscope::show();
-
-  // Eigen::VectorXd f0 = g;
-  // Eigen::SparseMatrix<double> dfdx = H_proj;
-
-  // int amount_of_vertices = geometry->vertexPositions.size();
-  // int system_size = 3 * amount_of_vertices;
-
-  // Eigen::VectorXd masses = Eigen::VectorXd::Ones(system_size);
-
-  // std::cout << masses << std::endl;
-
-  // Eigen::VectorXd accelerations = f0.array() / masses.array();
-  // Eigen::VectorXd velocities = Eigen::VectorXd::Zero(system_size);
-  // double dt = 0.01;
-  // velocities += accelerations * dt;
-
-  // Eigen::VectorXd positions = x;
-  // positions += velocities * dt;
-
-  // std::cout << "x:\n" << x << std::endl;
-  // std::cout << "positions:\n" << positions << std::endl;
-
-  // Eigen::SparseMatrix<double> identity_matrix(system_size, system_size);
-  // identity_matrix.setIdentity();
 }
