@@ -54,4 +54,16 @@ template<typename T> T baraffWitkinStretchPotential(Eigen::Matrix<T, 3, 2> defor
   T E = Eu + Ev;
   return E;
 }
+
+template<typename T> T baraffWitkinShearPotential(Eigen::Matrix<T, 3, 2> deformationGradient) {
+  Eigen::Matrix<T, 3, 2> F = deformationGradient;
+  Eigen::Matrix<T, 3, 1> wu = F.col(0);
+  Eigen::Matrix<T, 3, 1> wv = F.col(1);
+
+  // T C = wu.dot(wv);
+  T C = wu.transpose() * wv;
+  T E = 0.5 * C * C;
+  return E;
+}
+
 }  // namespace silk

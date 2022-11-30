@@ -3,6 +3,27 @@
 #include <silk/simple_meshes.hh>
 
 namespace silk {
+
+Eigen::Vector3d make3D(Eigen::Vector2d v2) {
+  Eigen::Vector3d v3;
+  v3 << v2, 0.0;
+  return v3;
+}
+
+tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeSingleTriangle() {
+  // Setup mesh and rest shape
+  vector<size_t> triangle0{0, 1, 2};
+  vector<vector<size_t>> triangles{triangle0};
+
+  Vector3 v0{0.0, 0.0, 0.0};
+  Vector3 v1{1.0, 0.0, 0.0};
+  Vector3 v2{0.0, 1.0, 0.0};
+
+  vector<Vector3> vertexCoordinates{v0, v1, v2};
+  SimplePolygonMesh simpleMesh(triangles, vertexCoordinates);
+  return makeManifoldSurfaceMeshAndGeometry(simpleMesh.polygons, simpleMesh.vertexCoordinates);
+};
+
 tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeTwoTriangleSquare() {
   // Setup mesh and rest shape
   vector<size_t> triangle0{0, 1, 2};
@@ -60,4 +81,15 @@ tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeS
   SimplePolygonMesh simpleMesh(triangles, vertexCoordinates);
   return makeManifoldSurfaceMeshAndGeometry(simpleMesh.polygons, simpleMesh.vertexCoordinates);
 };
+
+VertexData<Eigen::Vector2d> makeProjectedRestPositions(ManifoldSurfaceMesh &mesh, VertexPositionGeometry &geometry) {
+  geometry.requireVertexPositions();
+  VertexData<Eigen::Vector2d> vertexRestPositions(mesh);
+  for (Vertex v : mesh.vertices()) {
+    Vector3 position = geometry.vertexPositions[v];
+    vertexRestPositions[v] = Eigen::Vector2d({position.x, position.y});
+  }
+  return vertexRestPositions;
+}
+
 }  // namespace silk

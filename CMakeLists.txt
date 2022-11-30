@@ -53,3 +53,31 @@ foreach(main ${SILK_EXAMPLES})
     get_filename_component(dir_name ${dir} NAME)
     add_app(${app_name} ${main})
 endforeach()
+
+
+enable_testing()
+
+add_executable(
+  deformation_gradient_test
+  test/deformation_gradient_test.cpp
+)
+target_link_libraries(
+  deformation_gradient_test
+  GTest::gtest_main
+  silk
+)
+
+# TODO: remove this duplication, e.g. with a function similar to above.
+add_executable(
+  energies_test
+  test/energies_test.cpp
+)
+target_link_libraries(
+  energies_test
+  GTest::gtest_main
+  silk
+)
+
+include(GoogleTest)
+gtest_discover_tests(deformation_gradient_test)
+gtest_discover_tests(energies_test)

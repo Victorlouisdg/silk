@@ -29,27 +29,18 @@ geometrycentral::Vector3 to_geometrycentral(const Eigen::Vector3d &_v) {
   return geometrycentral::Vector3{_v.x(), _v.y(), _v.z()};
 }
 
-VertexData<Eigen::Vector2d> makeRestPositionsProjected(ManifoldSurfaceMesh &mesh, VertexPositionGeometry &geometry) {
-  geometry.requireVertexPositions();
-  VertexData<Eigen::Vector2d> vertexRestPositions(mesh);
-  for (Vertex v : mesh.vertices()) {
-    Vector3 position = geometry.vertexPositions[v];
-    vertexRestPositions[v] = Eigen::Vector2d({position.x, position.y});
-  }
-  return vertexRestPositions;
-}
-
 void drawSimulatedMesh(int frame,
                        ManifoldSurfaceMesh &mesh,
                        VertexPositionGeometry &geometry,
                        vector<VertexData<Eigen::Vector3d>> &positionsHistory,
                        map<string, vector<VertexData<Eigen::Vector3d>>> &vector3dVertexDataHistories) {
-  // Ensures refresh
-  auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
 
   for (Vertex v : mesh.vertices()) {
     geometry.vertexPositions[v] = to_geometrycentral(positionsHistory[frame][v]);
   }
+
+  // Ensures refresh
+  auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
 
   for (auto const &[name, dataHistory] : vector3dVertexDataHistories) {
     if (frame >= dataHistory.size()) {
@@ -113,12 +104,6 @@ vector<VertexData<Eigen::Vector3d>> flatHistoryToGeometryCentral(
   return vertexDataHistory;
 }
 
-Eigen::Vector3d make3D(Eigen::Vector2d v2) {
-  Eigen::Vector3d v3;
-  v3 << v2, 0.0;
-  return v3;
-}
-
 int main() {
   unique_ptr<ManifoldSurfaceMesh> mesh_pointer;
   unique_ptr<VertexPositionGeometry> geometry_pointer;
@@ -127,7 +112,7 @@ int main() {
   VertexPositionGeometry &geometry = *geometry_pointer;
 
   geometry.requireVertexPositions();
-  VertexData<Eigen::Vector2d> vertexRestPositions = makeRestPositionsProjected(mesh, geometry);
+  VertexData<Eigen::Vector2d> vertexRestPositions = silk::makeProjectedRestPositions(mesh, geometry);
 
   // Set up a function with 3D vertex positions as variables
   auto meshTriangleEnergies = TinyAD::scalar_function<3, double, VertexSet>(mesh.vertices());
@@ -152,13 +137,18 @@ int main() {
 
     Eigen::Matrix<T, 3, 2> F = silk::deformationGradient(x0, x1, x2, u0, u1, u2);
     T stretchPotential = silk::baraffWitkinStretchPotential(F);
+    T shearPotential = silk::baraffWitkinShearPotential(F);
 
-    Eigen::Vector3d restNormal = make3D(u1 - u0).cross(make3D(u2 - u0));
+    Eigen::Vector3d restNormal = silk::make3D(u1 - u0).cross(silk::make3D(u2 - u0));
     double restArea = restNormal.norm() / 2.0;
 
-    double stretchStiffness = 10000.0;
+    double stretchStiffness = 100.0;
+    double shearStiffness = 1.0;
 
-    T energy = stretchStiffness * restArea * stretchPotential;
+    double areaFactor = sqrt(restArea);
+    T shearEnergy = shearStiffness * areaFactor * shearPotential;
+    T stretchEnergy = stretchStiffness * areaFactor * stretchPotential;
+    T energy = stretchEnergy + shearEnergy;
 
     return energy;
   });
@@ -179,20 +169,21 @@ int main() {
   velocitiesHistory.push_back(initialVelocities);
 
   double standard_gravity = -9.81; /* in m/s^2 */
-  double dt = 0.1;
+  double dt = 0.005;
 
   // For the simulation part, we mostly work with flat (3*n_vertices, 1) column vectors.
   Eigen::VectorXd positions = initialPositions;
   Eigen::VectorXd velocities = initialVelocities;
   // Eigen::VectorXd forces = Eigen::VectorXd::Ones(system_size);
-  Eigen::VectorXd masses = 0.1 * Eigen::VectorXd::Ones(system_size);
+  double vertex_mass = 1.0 / system_size;
+  Eigen::VectorXd masses = vertex_mass * Eigen::VectorXd::Ones(system_size);
 
   Eigen::SparseMatrix<double> identity_matrix(system_size, system_size);
   identity_matrix.setIdentity();
 
   Eigen::SparseMatrix<double> mass_matrix(system_size, system_size);
   mass_matrix.setIdentity();
-  mass_matrix *= 0.1;
+  mass_matrix *= vertex_mass;
 
   // Set up gravity
   Eigen::VectorXd gravityAccelerations = Eigen::VectorXd::Zero(system_size);
@@ -217,7 +208,7 @@ int main() {
   //   S.block(i, i, 3, 3) = 0.0;
   // }
 
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 200; i++) {
 
     auto [energy, gradient, projectedHessian] = meshTriangleEnergies.eval_with_hessian_proj(positions);
     std::cout << "Energy: " << energy << std::endl;
@@ -243,11 +234,13 @@ int main() {
     Eigen::VectorXd c = b - A * z;
     Eigen::VectorXd rhs = S * c;
 
-    Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper> cg;
+    Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper> solver;
+    solver.setTolerance(0.01);
+
     Eigen::VectorXd y(system_size);
 
-    cg.compute(LHS);
-    y = cg.solve(rhs);
+    solver.compute(LHS);
+    y = solver.solve(rhs);
 
     Eigen::VectorXd delta_v = y + z;
 
@@ -256,8 +249,8 @@ int main() {
     // cg.compute(A);
     // delta_v = cg.solve(b);
 
-    std::cout << "#iterations:     " << cg.iterations() << std::endl;
-    std::cout << "estimated error: " << cg.error() << std::endl;
+    std::cout << "#iterations:     " << solver.iterations() << std::endl;
+    std::cout << "estimated error: " << solver.error() << std::endl;
     // The explicit way:
     // Eigen::VectorXd accelerations = forces.array() / masses.array();
     // velocities += accelerations * dt;
