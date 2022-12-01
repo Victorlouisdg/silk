@@ -23,23 +23,10 @@ using namespace geometrycentral::surface;
 int main() {
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;
-  Eigen::MatrixXd V = Eigen::MatrixXd::Zero(4, 3);  // 3D vertex positions
 
-  // Adapted from:  https://www.danielsieger.com/blog/2021/01/03/generating-platonic-solids.html
-  // choose coordinates on the unit sphere
-  double a = 1.0 / 3.0;
-  double b = sqrt(8.0 / 9.0);
-  double c = sqrt(2.0 / 9.0);
-  double d = sqrt(2.0 / 3.0);
-
-  Eigen::RowVector3d v0(0, 0, 1);
-  Eigen::RowVector3d v1(-c, d, -a);
-  Eigen::RowVector3d v2(-c, -d, -a);
-  Eigen::RowVector3d v3(b, 0, -a);
-  V << v0, v1, v2, v3;
-
-  Eigen::MatrixXi T(1, 4);  // tetrahedra
-  T << 0, 1, 2, 3;
+  Eigen::MatrixXd V;
+  Eigen::MatrixXi T;
+  std::tie(V, T) = silk::makeRegularTetrahedron();
 
   polyscope::registerTetMesh("my mesh", V, T);
 
