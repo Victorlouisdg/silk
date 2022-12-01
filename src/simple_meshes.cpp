@@ -44,8 +44,8 @@ tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeS
   Eigen::MatrixXd V = Eigen::MatrixXd::Zero(4, 3);  // 3D vertex positions
   V << 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0;
 
-  Eigen::MatrixXi F(1, 4);  // Mesh faces
-  F << 0, 1, 2, 3;
+  // Eigen::MatrixXi F(1, 4);  // Mesh faces
+  // F << 0, 1, 2, 3;
 
   Eigen::MatrixXi E(4, 2);  // Mesh edges
   E << 0, 1, 1, 2, 2, 3, 3, 0;
