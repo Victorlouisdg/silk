@@ -15,7 +15,7 @@
 #include "polyscope/polyscope.h"
 #include "polyscope/surface_mesh.h"
 
-#include <TinyAD-Examples/IGLGeometryCentralConvert.hh>
+#include "silk/IGLGeometryCentralConvert.hh"
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;

@@ -15,7 +15,7 @@
 #include "polyscope/polyscope.h"
 #include "polyscope/surface_mesh.h"
 
-#include <TinyAD-Examples/IGLGeometryCentralConvert.hh>
+#include "silk/IGLGeometryCentralConvert.hh"
 
 #include "silk/energies.hh"
 #include "silk/simple_meshes.hh"
