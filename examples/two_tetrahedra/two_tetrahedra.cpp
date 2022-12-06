@@ -16,7 +16,10 @@
 #include "silk/visualization.hh"
 
 #include <igl/boundary_facets.h>
+#include <igl/edges.h>
 #include <igl/triangle/triangulate.h>
+
+#include <ipc/ipc.hpp>
 
 using namespace std;
 using namespace geometrycentral;
@@ -112,12 +115,14 @@ int main() {
 
   Eigen::MatrixXi F;
   igl::boundary_facets(T, F);
-  std::cout << F << std::endl;
+
+  Eigen::MatrixXi E;
+  igl::edges(F, E);
 
   std::vector<Eigen::Matrix3d> restShapes = silk::initializeTetrahedronRestShapes(V, T);
 
   // Small squash
-  V(0, 2) -= 0.2;
+  // V(0, 2) -= 0.1;
 
   // Set up a function with 3D vertex positions as variables
   auto tetrahedronEnergies = TinyAD::scalar_function<3>(TinyAD::range(V.rows()));
@@ -176,11 +181,25 @@ int main() {
     std::cout << "Energy: " << energy << std::endl;
     Eigen::VectorXd forces = -gradient;
 
+    // update V
+    tetrahedronEnergies.x_to_data(positions, [&](int v_idx, const Eigen::Vector3d &v) { V.row(v_idx) = v; });
+    ipc::CollisionMesh mesh(V, E, F);
+
+    Eigen::MatrixXd collisionV = mesh.vertices(V);
+    ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::BRUTE_FORCE;
+    ipc::Constraints constraint_set;
+    double dhat = 0.2;  // square of maximum distance at which repulsion works
+    constraint_set.build(mesh, collisionV, dhat, /*dmin=*/0, method);
+
+    Eigen::VectorXd grad_b = ipc::compute_barrier_potential_gradient(mesh, collisionV, constraint_set, dhat);
+    Eigen::SparseMatrix<double> hess_b = ipc::compute_barrier_potential_hessian(
+        mesh, V, constraint_set, dhat, /*project_to_psd=*/true);
+
     double h = dt;
     Eigen::VectorXd x0 = positions;
     Eigen::VectorXd v0 = velocities;
-    Eigen::VectorXd f0 = forces;
-    Eigen::SparseMatrix<double> dfdx = -projectedHessian;
+    Eigen::VectorXd f0 = forces - grad_b;
+    Eigen::SparseMatrix<double> dfdx = -projectedHessian - hess_b;
     Eigen::SparseMatrix<double> M = mass_matrix;
 
     Eigen::SparseMatrix<double> A = M - (h * h) * dfdx;
