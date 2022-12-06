@@ -17,5 +17,6 @@ tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeT
 tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeSquare();
 VertexData<Eigen::Vector2d> makeProjectedRestPositions(ManifoldSurfaceMesh &mesh, VertexPositionGeometry &geometry);
 tuple<Eigen::MatrixXd, Eigen::MatrixXi> makeRegularTetrahedron();
+tuple<Eigen::MatrixXd, Eigen::MatrixXi> makeStackedTetrahedra();
 
 }  // namespace silk

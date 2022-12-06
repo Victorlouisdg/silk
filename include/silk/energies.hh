@@ -6,11 +6,32 @@
 #include "geometrycentral/surface/surface_mesh_factories.h"
 #include <iostream>
 
+#include <TinyAD/ScalarFunction.hh>
+
 using namespace std;
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
 
 namespace silk {
+
+std::vector<Eigen::Matrix3d> initializeTetrahedronRestShapes(Eigen::MatrixXd &V, Eigen::MatrixXi &T) {
+  std::vector<Eigen::Matrix3d> restShapes;
+  restShapes.reserve(T.rows());
+
+  // This notation is from the TinyAD examples.
+  for (int t_idx = 0; t_idx < T.rows(); ++t_idx) {
+    // Get 3D vertex positions
+    Eigen::Vector3d ar = V.row(T(t_idx, 0));
+    Eigen::Vector3d br = V.row(T(t_idx, 1));
+    Eigen::Vector3d cr = V.row(T(t_idx, 2));
+    Eigen::Vector3d dr = V.row(T(t_idx, 3));
+
+    // Save 3-by-3 matrix with edge vectors as colums
+    restShapes[t_idx] = TinyAD::col_mat(br - ar, cr - ar, dr - ar);
+  };
+  return restShapes;
+}
+
 template<typename T3, typename T2>
 Eigen::Matrix<T3, 3, 2> deformationGradient(Eigen::Vector3<T3> vertexPosition0,
                                             Eigen::Vector3<T3> vertexPosition1,

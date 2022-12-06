@@ -114,4 +114,28 @@ tuple<Eigen::MatrixXd, Eigen::MatrixXi> makeRegularTetrahedron() {
   return std::make_tuple(V, T);
 };
 
+tuple<Eigen::MatrixXd, Eigen::MatrixXi> makeStackedTetrahedra() {
+  Eigen::MatrixXd V0;
+  Eigen::MatrixXi T0;
+  // Eigen::Matrix<int, Eigen::Dynamic, 4> T0;  // Test whether this results in efficiency gains
+  std::tie(V0, T0) = silk::makeRegularTetrahedron();
+
+  Eigen::MatrixXd V1;
+  Eigen::MatrixXi T1;
+  std::tie(V1, T1) = silk::makeRegularTetrahedron();
+  V1.rightCols(1).array() += 1.5;  // Move tetrahedron up
+
+  // Combine arrays of the tets for joint processing.
+  Eigen::MatrixXd V = Eigen::MatrixXd(V0.rows() + V1.rows(), V0.cols());
+  V.topRows(V0.rows()) = V0;
+  V.bottomRows(V1.rows()) = V1;
+
+  Eigen::MatrixXi T = Eigen::MatrixXi(T0.rows() + T1.rows(), T0.cols());
+  T.topRows(T0.rows()) = T0;
+  // Account for the offset the vertices of the second tetrahedron by the amount of vertices in the first.
+  T.bottomRows(T1.rows()) = T1.array() + V0.rows();
+
+  return std::make_tuple(V, T);
+};
+
 }  // namespace silk
