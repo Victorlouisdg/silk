@@ -125,7 +125,7 @@ int main() {
   std::vector<Eigen::Matrix3d> restShapes = silk::initializeTetrahedronRestShapes(V, T);
 
   // Small squash
-  V(0, 2) -= 0.5;
+  // V(0, 2) -= 0.5;
 
   // Set up a function with 3D vertex positions as variables
   auto elasticPotentialFunction = TinyAD::scalar_function<3>(TinyAD::range(V.rows()));
@@ -154,7 +154,7 @@ int main() {
   int vertexCount = V.rows();
   int system_size = initialPositions.size();
   Eigen::VectorXd initialVelocities = Eigen::VectorXd::Zero(system_size);
-  // initialVelocities(4 * 3 + 2) = -2.0;  // v_z of top vertex of upper tetrahedron
+  initialVelocities(4 * 3 + 2) = -4.0;  // v_z of top vertex of upper tetrahedron
 
   vector<Eigen::VectorXd> positionsHistory;
   vector<Eigen::VectorXd> velocitiesHistory;
@@ -178,29 +178,7 @@ int main() {
   mass_matrix.setIdentity();
   mass_matrix *= vertex_mass;
 
-  for (int i = 0; i < 200; i++) {
-    // Eigen::VectorXd forces = -gradient;
-
-    // update V
-    // elasticPotentialFunction.x_to_data(positions, [&](int v_idx, const Eigen::Vector3d &v) { V.row(v_idx) = v; });
-    // ipc::CollisionMesh mesh(V, E, F);
-
-    // Eigen::MatrixXd collisionV = mesh.vertices(V);
-    // ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::BRUTE_FORCE;
-    // ipc::Constraints constraintSet;
-    // double dhat = 0.2;  // square of maximum distance at which repulsion works
-    // constraintSet.build(mesh, collisionV, dhat, /*dmin=*/0, method);
-
-    // // Evaluate barrier potential and derivatives
-    // double barrierPotential = ipc::compute_barrier_potential(mesh, collisionV, constraintSet, dhat);
-    // Eigen::VectorXd barrierPotentialGradient = ipc::compute_barrier_potential_gradient(
-    //     mesh, collisionV, constraintSet, dhat);
-    // Eigen::SparseMatrix<double> barrierPotentialHessian = ipc::compute_barrier_potential_hessian(
-    //     mesh, V, constraintSet, dhat, /*project_to_psd=*/true);
-
-    // double incrementalPotential = 0.0;
-    // double barrierAugmentedIncrementalPotential = incrementalPotential + barrierPotential;
-
+  for (int i = 0; i < 400; i++) {
     double h = dt;
     Eigen::VectorXd x0 = positions;
     Eigen::VectorXd v0 = velocities;
@@ -217,19 +195,6 @@ int main() {
     elasticPotentialFunction.x_to_data(predictivePositionsFlat, [&](int v_idx, const Eigen::Vector3d &vectorData) {
       predictivePositions.row(v_idx) = vectorData;
     });
-
-    // Eigen::MatrixXd V(flatVector.rows() / 3, 3);
-    // tinyadFunction.x_to_data(flatVector,
-    //                          [&](int v_idx, const Eigen::Vector3d &vectorData) { V.row(v_idx) = vectorData; });
-
-    // std::cout << positions - predictivePositions << std::endl;
-
-    // predictivePositions.resize(vertexCount, 3);         // This shape is more convenient for indexing rows.
-    // Eigen::Vector3d predictivePosition = predictivePositions.row(0);
-
-    // predictivePositions = predictivePositions.reshaped(vertexCount, 3);
-
-    // std::cout << "pred:" << std::endl << predictivePositions << std::endl;
 
     TinyAD::EvalSettings settings{1};
 
@@ -260,7 +225,7 @@ int main() {
     auto x = x0;
 
     int max_iters = 50;
-    double convergence_eps = 1e-6;
+    double convergence_eps = 1e-8;
     Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> cg_solver;
     for (int i = 0; i < max_iters; ++i) {
       // auto [f, g, H_proj] = func.eval_with_hessian_proj(x);
@@ -272,27 +237,37 @@ int main() {
             kineticPotentialGradient,
             kineticPotentialHessian] = kineticPotentialFunction.eval_with_hessian_proj(x);
 
-      // std::cout << "iter: " << i << std::endl;
-      // std::cout << "kineticPotential: " << kineticPotential << std::endl;
-      // std::cout << "elasticPotential: " << elasticPotential << std::endl;
+      // update V
+      elasticPotentialFunction.x_to_data(x, [&](int v_idx, const Eigen::Vector3d &v) { V.row(v_idx) = v; });
+      ipc::CollisionMesh mesh(V, E, F);
 
-      auto incrementalPotential = kineticPotential + h * h * elasticPotential;
-      auto incrementalPotentialGradient = kineticPotentialGradient + h * h * elasticPotentialGradient;
-      auto incrementalPotentialHessian = kineticPotentialHessian + h * h * elasticPotentialHessian;
+      Eigen::MatrixXd collisionV = mesh.vertices(V);
+      ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::BRUTE_FORCE;
+      ipc::Constraints constraintSet;
+      double dhat = 0.01;  // square of maximum distance at which repulsion works
+      constraintSet.build(mesh, collisionV, dhat, /*dmin=*/0, method);
 
-      // auto f = incrementalPotential;
+      // Evaluate barrier potential and derivatives
+      double barrierPotential = ipc::compute_barrier_potential(mesh, collisionV, constraintSet, dhat);
+      Eigen::VectorXd barrierPotentialGradient = ipc::compute_barrier_potential_gradient(
+          mesh, collisionV, constraintSet, dhat);
+      Eigen::SparseMatrix<double> barrierPotentialHessian = ipc::compute_barrier_potential_hessian(
+          mesh, V, constraintSet, dhat, /*project_to_psd=*/true);
+
+      auto incrementalPotential = kineticPotential + h * h * elasticPotential + barrierPotential;
+      auto incrementalPotentialGradient = kineticPotentialGradient + h * h * elasticPotentialGradient +
+                                          barrierPotentialGradient;
+      auto incrementalPotentialHessian = kineticPotentialHessian + h * h * elasticPotentialHessian +
+                                         barrierPotentialHessian;
+
       double f = incrementalPotential;
       Eigen::VectorXd g = incrementalPotentialGradient;
       auto H_proj = incrementalPotentialHessian;
-      // auto func
 
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
         return kineticPotentialFunction(x) + h * h * elasticPotentialFunction(x);
       };
 
-      // TINYAD_DEBUG_OUT("Energy in iteration " << i << ": " << f);
-
-      //+ 1e-4 * TinyAD::identity<double>(x.size())
       Eigen::VectorXd d = cg_solver.compute(H_proj).solve(-g);
       if (TinyAD::newton_decrement(d, g) < convergence_eps) {
         std::cout << "Final energy: " << func(x) << std::endl;
@@ -302,27 +277,8 @@ int main() {
       std::cout << "Energy: " << func(x) << std::endl;
       x = TinyAD::line_search(x, d, f, g, func);
     }
-    // std::cout << "Final energy: " << func.eval(x) positions = x;
     positions = x;
     velocities = (x - x0).array() / dt;
-    // TINYAD_DEBUG_OUT("Final energy: " << func.eval(x));
-
-    // Eigen::SparseMatrix<double> A = M - (h * h) * dfdx;
-    // Eigen::VectorXd b = h * (f0 + h * (dfdx * v0));
-
-    // Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper> solver;
-    // solver.setTolerance(0.01);
-
-    // Eigen::VectorXd delta_v(system_size);
-
-    // solver.compute(A);
-    // delta_v = solver.solve(b);
-
-    // std::cout << "#iterations:     " << solver.iterations() << std::endl;
-    // std::cout << "estimated error: " << solver.error() << std::endl;
-
-    // velocities += delta_v;
-    // positions += velocities * dt;
 
     positionsHistory.push_back(positions);
     velocitiesHistory.push_back(velocities);
