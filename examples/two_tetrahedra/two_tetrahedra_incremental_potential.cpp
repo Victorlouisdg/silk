@@ -219,7 +219,7 @@ int main() {
 
     auto kinetic = kineticPotentialFunction.eval(x0);
     auto [elastic, elasticGradient] = elasticPotentialFunction.eval_with_gradient(x0);
-    std::cout << "k:" << kinetic << " e: " << elastic << std::endl;
+    // std::cout << "k:" << kinetic << " e: " << elastic << std::endl;
 
     // Projected Newton with conjugate gradient solver
     auto x = x0;
@@ -252,7 +252,7 @@ int main() {
       Eigen::VectorXd barrierPotentialGradient = ipc::compute_barrier_potential_gradient(
           mesh, collisionV, constraintSet, dhat);
       Eigen::SparseMatrix<double> barrierPotentialHessian = ipc::compute_barrier_potential_hessian(
-          mesh, V, constraintSet, dhat, /*project_to_psd=*/true);
+          mesh, collisionV, constraintSet, dhat, /*project_to_psd=*/true);
 
       auto incrementalPotential = kineticPotential + h * h * elasticPotential + barrierPotential;
       auto incrementalPotentialGradient = kineticPotentialGradient + h * h * elasticPotentialGradient +
@@ -269,13 +269,21 @@ int main() {
       };
 
       Eigen::VectorXd d = cg_solver.compute(H_proj).solve(-g);
+      Eigen::MatrixXd D(vertexCount, 3);
+      elasticPotentialFunction.x_to_data(d, [&](int v_idx, const Eigen::Vector3d &v) { D.row(v_idx) = v; });
+
+      D += V;
+      double c = ipc::compute_collision_free_stepsize(mesh, V, D);
+      // std::cout << "collision free step size: " << c << std::endl;
+
       if (TinyAD::newton_decrement(d, g) < convergence_eps) {
-        std::cout << "Final energy: " << func(x) << std::endl;
-        std::cout << "Decrement: " << TinyAD::newton_decrement(d, g) << std::endl;
+        // std::cout << "Final energy: " << func(x) << std::endl;
+        // std::cout << "Decrement: " << TinyAD::newton_decrement(d, g) << std::endl;
         break;
       }
-      std::cout << "Energy: " << func(x) << std::endl;
-      x = TinyAD::line_search(x, d, f, g, func);
+      // std::cout << "Energy: " << func(x) << std::endl;
+      double s_max = min(c, 1.0);
+      x = TinyAD::line_search(x, d, f, g, func, s_max);
     }
     positions = x;
     velocities = (x - x0).array() / dt;
