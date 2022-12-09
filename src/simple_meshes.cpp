@@ -1,3 +1,4 @@
+#include "polyscope/standardize_data_array.h"
 #include <igl/triangle/triangulate.h>
 #include <iostream>
 #include <silk/simple_meshes.hh>
@@ -38,6 +39,45 @@ tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeT
   vector<Vector3> vertexCoordinates{v0, v1, v2, v3};
   SimplePolygonMesh simpleMesh(triangles, vertexCoordinates);
   return makeManifoldSurfaceMeshAndGeometry(simpleMesh.polygons, simpleMesh.vertexCoordinates);
+};
+
+tuple<unique_ptr<SurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeOrthogonalTriangles() {
+  // Setup mesh and rest shape
+
+  // Set v0, v1 and v2 to the vertices of a regular triangle
+  double a = 1.0 / 3.0;
+  double b = sqrt(8.0 / 9.0);
+  double c = sqrt(2.0 / 9.0);
+  double d = sqrt(2.0 / 3.0);
+
+  Eigen::RowVector3d v0(b, 0, -a);
+  Eigen::RowVector3d v1(-c, d, -a);
+  Eigen::RowVector3d v2(-c, -d, -a);
+
+  Eigen::RowVector3d v3 = v0;
+  Eigen::RowVector3d v4 = v1;
+  Eigen::RowVector3d v5 = v2;
+
+  Eigen::Matrix<double, 6, 3> vertexCoordinates;
+  vertexCoordinates << v0, v1, v2, v3, v4, v5;
+
+  Eigen::Matrix3d RotationMatrixY = Eigen::AngleAxisd(M_PI / 2.0, Eigen::Vector3d::UnitY()).matrix();
+
+  // Multiply the bottom 3 rows of the matrix by the rotation matrix
+  vertexCoordinates.bottomRows(3) = (RotationMatrixY * vertexCoordinates.bottomRows(3).transpose()).transpose();
+
+  // Shift the bottom 3 triangles up by 1.2
+  vertexCoordinates.bottomRows(3).col(2).array() += 1.2;
+
+  // Shift the vertices of the second triangle along the x-axis so that it is centered above the first
+  vertexCoordinates.bottomRows(3).col(0).array() = (1. / 3. * b - 2. / 3. * c);
+
+  Eigen::RowVector3i triangle0{0, 1, 2};
+  Eigen::RowVector3i triangle1{3, 4, 5};
+  Eigen::Matrix<int, 2, 3> triangles;
+  triangles << triangle0, triangle1;
+
+  return makeSurfaceMeshAndGeometry(vertexCoordinates, triangles);
 };
 
 tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeSquare() {

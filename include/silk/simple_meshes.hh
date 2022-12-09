@@ -14,6 +14,7 @@ namespace silk {
 Eigen::Vector3d make3D(Eigen::Vector2d v2);
 tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeSingleTriangle();
 tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeTwoTriangleSquare();
+tuple<unique_ptr<SurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeOrthogonalTriangles();
 tuple<unique_ptr<ManifoldSurfaceMesh>, unique_ptr<VertexPositionGeometry>> makeSquare();
 VertexData<Eigen::Vector2d> makeProjectedRestPositions(ManifoldSurfaceMesh &mesh, VertexPositionGeometry &geometry);
 tuple<Eigen::MatrixXd, Eigen::MatrixXi> makeRegularTetrahedron();

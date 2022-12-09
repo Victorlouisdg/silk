@@ -61,16 +61,16 @@ void addEdgeDihedralAngle(VertexPositionGeometry &geometry, SurfaceMesh &mesh, p
   psMesh.addEdgeScalarQuantity("dihedral_angles", geometry.edgeDihedralAngles);
 }
 
-void visualizeMesh(ManifoldSurfaceMesh &mesh, VertexPositionGeometry &geometry) {
+void visualizeMesh(SurfaceMesh &mesh, VertexPositionGeometry &geometry) {
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;
   auto *psMesh = polyscope::registerSurfaceMesh("my mesh", geometry.vertexPositions, mesh.getFaceVertexList());
 
-  addSmoothestVertexDirectionField(geometry, mesh, *psMesh);
-  addFaceAreas(geometry, mesh, *psMesh);
+  // addSmoothestVertexDirectionField(geometry, mesh, *psMesh);
+  // addFaceAreas(geometry, mesh, *psMesh);
   addFaceNormals(geometry, mesh, *psMesh);
-  addCurvatures(geometry, mesh, *psMesh);
-  addEdgeDihedralAngle(geometry, mesh, *psMesh);
+  // addCurvatures(geometry, mesh, *psMesh);
+  // addEdgeDihedralAngle(geometry, mesh, *psMesh);
 
   polyscope::show();
 }
