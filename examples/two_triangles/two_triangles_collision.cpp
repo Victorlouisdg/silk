@@ -21,6 +21,13 @@
 #include "silk/simple_meshes.hh"
 #include "silk/visualization.hh"
 
+#include <igl/edges.h>
+
+#include <ipc/ipc.hpp>
+
+#include <TinyAD/Utils/LineSearch.hh>
+#include <TinyAD/Utils/NewtonDecrement.hh>
+
 using namespace std;
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
@@ -94,6 +101,9 @@ int main() {
   Eigen::MatrixXi triangles;                           // Mesh faces
   to_igl(mesh, geometry, vertexPositions, triangles);  // Convert mesh to igl format
 
+  Eigen::MatrixXi edges;
+  igl::edges(triangles, edges);
+
   Eigen::MatrixXd vertexRestPositions = vertexPositions.leftCols<2>();
   vertexRestPositions.bottomRows(3) = vertexRestPositions.topRows(3);
 
@@ -151,6 +161,7 @@ int main() {
   int system_size = initialPositions.size();
   Eigen::VectorXd initialVelocities = Eigen::VectorXd::Zero(system_size);
   // initialVelocities[6] = 0.1;
+  initialVelocities(3 * 3 + 2) = -4.0;
 
   // IGL-style Nx3 Eigen matrices to record the history of the simulation.
   vector<Eigen::MatrixXd> positionsHistory;
@@ -166,89 +177,116 @@ int main() {
   // For the simulation part, we mostly work with flat (3*n_vertices, 1) column vectors.
   Eigen::VectorXd positions = initialPositions;
   Eigen::VectorXd velocities = initialVelocities;
-  // Eigen::VectorXd forces = Eigen::VectorXd::Ones(system_size);
+
   double vertex_mass = 1.0 / system_size;
   Eigen::VectorXd masses = vertex_mass * Eigen::VectorXd::Ones(system_size);
-
   Eigen::SparseMatrix<double> identity_matrix(system_size, system_size);
   identity_matrix.setIdentity();
-
   Eigen::SparseMatrix<double> mass_matrix(system_size, system_size);
   mass_matrix.setIdentity();
   mass_matrix *= vertex_mass;
-
-  // Set up gravity
-  Eigen::VectorXd gravityAccelerations = Eigen::VectorXd::Zero(system_size);
-  gravityAccelerations(Eigen::seqN(2, vertexCount, 3)) = standard_gravity * Eigen::VectorXd::Ones(vertexCount);
-  Eigen::VectorXd gravityForces = mass_matrix * gravityAccelerations;
-
-  std::vector<int> pinnedVertices;
-  pinnedVertices.push_back(1);
-
-  // TODO document
-  Eigen::SparseMatrix<double> S(system_size, system_size);
-  S.setIdentity();
-  S.coeffRef(0, 0) = 0;
-  S.coeffRef(1, 1) = 0;
-  S.coeffRef(2, 2) = 0;
-  S.coeffRef(3, 3) = 0;
-  S.coeffRef(4, 4) = 0;
-  S.coeffRef(5, 5) = 0;
-  Eigen::VectorXd z = Eigen::VectorXd::Zero(system_size);
-
-  // for (int i : pinnedVertices) {
-  //   S.block(i, i, 3, 3) = 0.0;
-  // }
+  Eigen::SparseMatrix<double> M = mass_matrix;
+  Eigen::SparseMatrix<double> Minv = -M;
 
   for (int i = 0; i < 200; i++) {
-
-    auto [energy, gradient, projectedHessian] = elasticPotentialFunction.eval_with_hessian_proj(positions);
-    std::cout << "Energy: " << energy << std::endl;
-    Eigen::VectorXd forces = -gradient;
-
     double h = dt;
     Eigen::VectorXd x0 = positions;
     Eigen::VectorXd v0 = velocities;
-    Eigen::VectorXd f0 = forces;
-    Eigen::SparseMatrix<double> dfdx = -projectedHessian;
-    Eigen::SparseMatrix<double> M = mass_matrix;
 
-    f0 += gravityForces;
+    Eigen::VectorXd predictivePositionsFlat = x0 + h * v0;  //+ h * h;  // * Minv
+    Eigen::MatrixXd predictivePositions(vertexCount, 3);
+    elasticPotentialFunction.x_to_data(predictivePositionsFlat, [&](int v_idx, const Eigen::Vector3d &vectorData) {
+      predictivePositions.row(v_idx) = vectorData;
+    });
 
-    Eigen::SparseMatrix<double> A = M - (h * h) * dfdx;
-    Eigen::VectorXd b = h * (f0 + h * (dfdx * v0));
+    auto kineticPotentialFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
+    kineticPotentialFunction.add_elements<1>(
+        TinyAD::range(vertexCount), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
+          // Evaluate element using either double or TinyAD::Double
+          using ScalarT = TINYAD_SCALAR_TYPE(element);
+          int v_idx = element.handle;
+          Eigen::Vector3<ScalarT> position = element.variables(v_idx);
+          Eigen::Vector3d predictivePosition = predictivePositions.row(v_idx);
+          Eigen::Vector3<ScalarT> difference = position - predictivePosition;
 
-    Eigen::SparseMatrix<double> I = identity_matrix;
+          double vertex_mass = masses(v_idx);
 
-    // SparseMatrix<float> S = create_S_matrix();
-    Eigen::SparseMatrix<double> ST = Eigen::SparseMatrix<double>(S.transpose());
-    Eigen::SparseMatrix<double> LHS = (S * A * ST) + I - S;
-    Eigen::VectorXd c = b - A * z;
-    Eigen::VectorXd rhs = S * c;
+          ScalarT potential = 0.5 * vertex_mass * difference.transpose() * difference;
 
-    Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower | Eigen::Upper> solver;
-    solver.setTolerance(0.01);
+          return potential;
+        });
 
-    Eigen::VectorXd y(system_size);
+    auto kinetic = kineticPotentialFunction.eval(x0);
+    auto [elastic, elasticGradient] = elasticPotentialFunction.eval_with_gradient(x0);
+    std::cout << "k:" << kinetic << " e: " << elastic << std::endl;
 
-    solver.compute(LHS);
-    y = solver.solve(rhs);
+    // Projected Newton with conjugate gradient solver
+    auto x = x0;
 
-    Eigen::VectorXd delta_v = y + z;
+    int max_iters = 50;
+    double convergence_eps = 1e-8;
+    Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> cg_solver;
+    for (int i = 0; i < max_iters; ++i) {
+      // auto [f, g, H_proj] = func.eval_with_hessian_proj(x);
+      auto [elasticPotential,
+            elasticPotentialGradient,
+            elasticPotentialHessian] = elasticPotentialFunction.eval_with_hessian_proj(x);
 
-    // Non-filtered way:
-    // Eigen::VectorXd delta_v(system_size);
-    // cg.compute(A);
-    // delta_v = cg.solve(b);
+      auto [kineticPotential,
+            kineticPotentialGradient,
+            kineticPotentialHessian] = kineticPotentialFunction.eval_with_hessian_proj(x);
 
-    std::cout << "#iterations:     " << solver.iterations() << std::endl;
-    std::cout << "estimated error: " << solver.error() << std::endl;
-    // The explicit way:
-    // Eigen::VectorXd accelerations = forces.array() / masses.array();
-    // velocities += accelerations * dt;
+      // update V
+      elasticPotentialFunction.x_to_data(x,
+                                         [&](int v_idx, const Eigen::Vector3d &v) { vertexPositions.row(v_idx) = v; });
 
-    velocities += delta_v;
-    positions += velocities * dt;
+      ipc::CollisionMesh mesh(vertexPositions, edges, triangles);
+
+      Eigen::MatrixXd collisionV = mesh.vertices(vertexPositions);
+      ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::BRUTE_FORCE;
+      ipc::Constraints constraintSet;
+      double dhat = 0.01;  // square of maximum distance at which repulsion works
+      constraintSet.build(mesh, collisionV, dhat, /*dmin=*/0, method);
+
+      // Evaluate barrier potential and derivatives
+      double barrierPotential = ipc::compute_barrier_potential(mesh, collisionV, constraintSet, dhat);
+      Eigen::VectorXd barrierPotentialGradient = ipc::compute_barrier_potential_gradient(
+          mesh, collisionV, constraintSet, dhat);
+      Eigen::SparseMatrix<double> barrierPotentialHessian = ipc::compute_barrier_potential_hessian(
+          mesh, collisionV, constraintSet, dhat, /*project_to_psd=*/true);
+
+      auto incrementalPotential = kineticPotential + h * h * elasticPotential + barrierPotential;
+      auto incrementalPotentialGradient = kineticPotentialGradient + h * h * elasticPotentialGradient +
+                                          barrierPotentialGradient;
+      auto incrementalPotentialHessian = kineticPotentialHessian + h * h * elasticPotentialHessian +
+                                         barrierPotentialHessian;
+      double f = incrementalPotential;
+      Eigen::VectorXd g = incrementalPotentialGradient;
+      auto H_proj = incrementalPotentialHessian;
+
+      std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
+        return kineticPotentialFunction(x) + h * h * elasticPotentialFunction(x);
+      };
+
+      Eigen::VectorXd d = cg_solver.compute(H_proj).solve(-g);
+      Eigen::MatrixXd D(vertexCount, 3);
+      elasticPotentialFunction.x_to_data(d, [&](int v_idx, const Eigen::Vector3d &v) { D.row(v_idx) = v; });
+
+      D += vertexPositions;
+      double c = ipc::compute_collision_free_stepsize(mesh, vertexPositions, D);
+      // std::cout << "collision free step size: " << c << std::endl;
+
+      if (TinyAD::newton_decrement(d, g) < convergence_eps) {
+        // std::cout << "Final energy: " << func(x) << std::endl;
+        // std::cout << "Decrement: " << TinyAD::newton_decrement(d, g) << std::endl;
+        break;
+      }
+      // std::cout << "Energy: " << func(x) << std::endl;
+      double s_max = min(c, 1.0);
+      x = TinyAD::line_search(x, d, f, g, func, s_max);
+    }
+    positions = x;
+    velocities = (x - x0).array() / dt;
 
     // Ugly code to reshape back to IGL format.
     Eigen::MatrixXd temp(vertexCount, 3);
@@ -261,7 +299,7 @@ int main() {
     velocitiesHistory.push_back(temp);
 
     elasticPotentialFunction.x_to_data(
-        forces, [&](int v_idx, const Eigen::Vector3d &vectorData) { temp.row(v_idx) = vectorData; });
+        -elasticGradient, [&](int v_idx, const Eigen::Vector3d &vectorData) { temp.row(v_idx) = vectorData; });
     forcesHistory.push_back(temp);
   }
 
