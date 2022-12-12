@@ -26,7 +26,7 @@ geometrycentral::Vector2 to_geometrycentral(const Eigen::Vector2d &_v) {
  *      _V: #V-by-3 vertex positions
  *      _F: #F-by-3 indices into _V
  */
-inline void to_igl(geometrycentral::surface::ManifoldSurfaceMesh &_mesh,
+inline void to_igl(geometrycentral::surface::SurfaceMesh &_mesh,
                    geometrycentral::surface::VertexPositionGeometry &_geometry,
                    Eigen::MatrixXd &_V,
                    Eigen::MatrixXi &_F) {
