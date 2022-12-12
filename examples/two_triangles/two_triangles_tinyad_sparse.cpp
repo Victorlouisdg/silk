@@ -15,10 +15,12 @@
 #include "polyscope/polyscope.h"
 #include "polyscope/surface_mesh.h"
 
-#include "silk/IGLGeometryCentralConvert.hh"
+#include "silk/conversions.hh"
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
+
+using namespace silk;
 
 geometrycentral::Vector3 to_geometrycentral(const Eigen::Vector3d &_v) {
   return geometrycentral::Vector3{_v.x(), _v.y(), _v.z()};

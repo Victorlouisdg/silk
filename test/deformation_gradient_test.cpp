@@ -15,7 +15,7 @@
 #include "polyscope/polyscope.h"
 #include "polyscope/surface_mesh.h"
 
-#include "silk/IGLGeometryCentralConvert.hh"
+#include "silk/conversions.hh"
 
 #include "silk/energies.hh"
 #include "silk/simple_meshes.hh"
@@ -26,6 +26,8 @@
 using namespace std;
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
+
+using namespace silk;
 
 // Demonstrate some basic assertions.
 TEST(DeformationGradient, BasicAssertions) {

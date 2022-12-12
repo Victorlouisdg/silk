@@ -9,6 +9,25 @@
 #include <geometrycentral/surface/manifold_surface_mesh.h>
 #include <geometrycentral/surface/vertex_position_geometry.h>
 
+// using namespace Eigen;
+
+namespace silk {
+
+/**
+ * Flattens a column vector to an IGL-style matrix with 3 columns.
+ */
+Eigen::VectorXd flatten(Eigen::MatrixXd &matrix) {
+  return matrix.reshaped<Eigen::RowMajor>(matrix.rows() * 3, 1);
+}
+
+/**
+ * Unflattens an IGL-style matrix (with 3 columns) to a vector with all values flattened into one column.
+ */
+Eigen::MatrixXd unflatten(Eigen::VectorXd &vector) {
+  // TODO: check if vector has a multiple of 3 rowsu
+  return vector.reshaped<Eigen::RowMajor>(vector.rows() / 3, 3);
+}
+
 Eigen::Vector2d to_eigen(const geometrycentral::Vector2 &_v) {
   return Eigen::Vector2d(_v.x, _v.y);
 }
@@ -61,3 +80,5 @@ inline geometrycentral::surface::VertexData<geometrycentral::Vector2> param_to_g
 
   return param;
 }
+
+}  // namespace silk

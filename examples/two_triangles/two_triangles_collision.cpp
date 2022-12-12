@@ -15,7 +15,7 @@
 #include "polyscope/polyscope.h"
 #include "polyscope/surface_mesh.h"
 
-#include "silk/IGLGeometryCentralConvert.hh"
+#include "silk/conversions.hh"
 
 #include "silk/energies.hh"
 #include "silk/simple_meshes.hh"
@@ -31,6 +31,8 @@
 using namespace std;
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
+
+using namespace silk;
 
 void drawSimulatedMesh(int frame,
                        Eigen::MatrixXi &triangles,
@@ -188,6 +190,11 @@ int main() {
   Eigen::SparseMatrix<double> M = mass_matrix;
   Eigen::SparseMatrix<double> Minv = -M;
 
+  ipc::CollisionMesh collisionMesh(vertexPositions, edges, triangles);
+  ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::BRUTE_FORCE;
+  ipc::Constraints constraintSet;
+  double dhat = 0.01;  // square of maximum distance at which repulsion works
+
   for (int i = 0; i < 200; i++) {
     double h = dt;
     Eigen::VectorXd x0 = positions;
@@ -236,24 +243,21 @@ int main() {
             kineticPotentialGradient,
             kineticPotentialHessian] = kineticPotentialFunction.eval_with_hessian_proj(x);
 
-      // update V
+      // Start for stuff to wrap
+      // flat x in -> potential, (flat) gradient and hessian out.
+      // unflatten vertex positions
       elasticPotentialFunction.x_to_data(x,
                                          [&](int v_idx, const Eigen::Vector3d &v) { vertexPositions.row(v_idx) = v; });
-
-      ipc::CollisionMesh mesh(vertexPositions, edges, triangles);
-
-      Eigen::MatrixXd collisionV = mesh.vertices(vertexPositions);
-      ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::BRUTE_FORCE;
-      ipc::Constraints constraintSet;
-      double dhat = 0.01;  // square of maximum distance at which repulsion works
-      constraintSet.build(mesh, collisionV, dhat, /*dmin=*/0, method);
+      Eigen::MatrixXd collisionV = collisionMesh.vertices(vertexPositions);
+      constraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
 
       // Evaluate barrier potential and derivatives
-      double barrierPotential = ipc::compute_barrier_potential(mesh, collisionV, constraintSet, dhat);
+      double barrierPotential = ipc::compute_barrier_potential(collisionMesh, collisionV, constraintSet, dhat);
       Eigen::VectorXd barrierPotentialGradient = ipc::compute_barrier_potential_gradient(
-          mesh, collisionV, constraintSet, dhat);
+          collisionMesh, collisionV, constraintSet, dhat);
       Eigen::SparseMatrix<double> barrierPotentialHessian = ipc::compute_barrier_potential_hessian(
-          mesh, collisionV, constraintSet, dhat, /*project_to_psd=*/true);
+          collisionMesh, collisionV, constraintSet, dhat, /*project_to_psd=*/true);
+      // end for stuff to wrap.
 
       auto incrementalPotential = kineticPotential + h * h * elasticPotential + barrierPotential;
       auto incrementalPotentialGradient = kineticPotentialGradient + h * h * elasticPotentialGradient +
@@ -264,6 +268,7 @@ int main() {
       Eigen::VectorXd g = incrementalPotentialGradient;
       auto H_proj = incrementalPotentialHessian;
 
+      // TODO need to add barrier to the function below.
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
         return kineticPotentialFunction(x) + h * h * elasticPotentialFunction(x);
       };
@@ -273,7 +278,7 @@ int main() {
       elasticPotentialFunction.x_to_data(d, [&](int v_idx, const Eigen::Vector3d &v) { D.row(v_idx) = v; });
 
       D += vertexPositions;
-      double c = ipc::compute_collision_free_stepsize(mesh, vertexPositions, D);
+      double c = ipc::compute_collision_free_stepsize(collisionMesh, vertexPositions, D);
       // std::cout << "collision free step size: " << c << std::endl;
 
       if (TinyAD::newton_decrement(d, g) < convergence_eps) {

@@ -13,6 +13,7 @@ include(ipc_toolkit)
 include(polyscope)
 include(geometry_central)
 include(tinyad)
+include(googletest)
 # include(tinyad_examples)
 
 set(LIBIGL_RESTRICTED_TRIANGLE ON)
@@ -51,21 +52,40 @@ target_link_libraries(silk PUBLIC
     # TinyAD-Examples
 )
 
-function(add_app app_name main)
-    message(STATUS "Adding app ${app_name}")
-    add_executable(${app_name} ${main})
-    add_dependencies(${app_name} silk)
-    target_link_libraries(${app_name} PUBLIC silk)
+function(add_example example_name main)
+    message(STATUS "Adding example ${example_name}")
+    add_executable(${example_name} ${main})
+    add_dependencies(${example_name} silk)
+    target_link_libraries(${example_name} PUBLIC silk)
 endfunction()
 
 file(GLOB_RECURSE SILK_EXAMPLES examples/*.cpp)
 foreach(main ${SILK_EXAMPLES})
-    get_filename_component(app_name ${main} NAME_WE)
+    get_filename_component(example_name ${main} NAME_WE)
     get_filename_component(dir ${main} DIRECTORY)
     get_filename_component(dir_name ${dir} NAME)
-    add_app(${app_name} ${main})
+    add_example(${example_name} ${main})
 endforeach()
 
+
+include(GoogleTest)
+function(add_test test_name main)
+    message(STATUS "Adding test ${test_name}")
+    add_executable(${test_name} ${main})
+    add_dependencies(${test_name} silk)
+    target_link_libraries(${test_name} PUBLIC silk GTest::gtest_main)
+    gtest_discover_tests(${test_name})
+
+endfunction()
+
+
+file(GLOB_RECURSE SILK_TESTS test/*.cpp)
+foreach(main ${SILK_TESTS})
+    get_filename_component(test_name ${main} NAME_WE)
+    get_filename_component(dir ${main} DIRECTORY)
+    get_filename_component(dir_name ${dir} NAME)
+    add_test(${test_name} ${main})
+endforeach()
 
 # enable_testing()
 
