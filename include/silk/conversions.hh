@@ -16,14 +16,14 @@ namespace silk {
 /**
  * Flattens a column vector to an IGL-style matrix with 3 columns.
  */
-Eigen::VectorXd flatten(Eigen::MatrixXd &matrix) {
+Eigen::VectorXd flatten(Eigen::MatrixXd const &matrix) {
   return matrix.reshaped<Eigen::RowMajor>(matrix.rows() * 3, 1);
 }
 
 /**
  * Unflattens an IGL-style matrix (with 3 columns) to a vector with all values flattened into one column.
  */
-Eigen::MatrixXd unflatten(Eigen::VectorXd &vector) {
+Eigen::MatrixXd unflatten(Eigen::VectorXd const &vector) {
   // TODO: check if vector has a multiple of 3 rowsu
   return vector.reshaped<Eigen::RowMajor>(vector.rows() / 3, 3);
 }

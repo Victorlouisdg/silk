@@ -25,31 +25,41 @@ bool playback_paused = false;
 }  // namespace state
 
 void registerInPolyscope(Eigen::Matrix<double, Eigen::Dynamic, 3> &vertexPositions,
-                         vector<Eigen::ArrayXi> &points,
-                         vector<Eigen::ArrayX2i> &edges,
-                         vector<Eigen::ArrayX3i> &triangles,
-                         vector<Eigen::ArrayX4i> &tetrahedra) {
+                         vector<Eigen::ArrayXi> &pointGroups,
+                         vector<Eigen::ArrayX2i> &edgeGroups,
+                         vector<Eigen::ArrayX3i> &triangleGroups,
+                         vector<Eigen::ArrayX4i> &tetrahedronGroups,
+                         const map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>> &vertexVectorQuantities =
+                             map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>()) {
   // TODO: Currently all vertexPositions are added to all Polyscope structure. However this might beneficial consider
   // whether it could be beneficial to extract only the vertexPositions used for each structure. This could improve
   // performance and would allow custom vertexQuantities to be added to each structure separately. However it would
   // require careful reindexing. Currently the vertexQuantities are global, so we add them only once to a sinlge point
   // cloud.
-  polyscope::registerPointCloud("Vertices", vertexPositions);
-
-  for (Eigen::ArrayXi pointGroup : points) {
-    polyscope::registerPointCloud("Points", vertexPositions(pointGroup, Eigen::all));
+  polyscope::PointCloud *psCloud = polyscope::registerPointCloud("Vertices", vertexPositions);
+  // for (auto &vertexVectorQuantity : vertexVectorQuantities) {
+  //   psCloud->addVectorQuantity(vertexVectorQuantity.first, vertexVectorQuantity.second);
+  // }
+  for (auto const &[quantityName, quantity] : vertexVectorQuantities) {
+    psCloud->addVectorQuantity(quantityName, quantity);
   }
 
-  for (Eigen::ArrayX2i edgeGroup : edges) {
-    polyscope::registerCurveNetwork("Edges", vertexPositions, edgeGroup);
+  // psCloud->addVectorQuantity2D()
+
+  for (int i = 0; i < pointGroups.size(); i++) {
+    polyscope::registerPointCloud("Point group " + std::to_string(i), vertexPositions(pointGroups[i], Eigen::all));
   }
 
-  for (Eigen::ArrayX3i triangleGroup : triangles) {
-    polyscope::registerSurfaceMesh("Surfaces", vertexPositions, triangleGroup);
+  for (int i = 0; i < edgeGroups.size(); i++) {
+    polyscope::registerCurveNetwork("Edges group " + std::to_string(i), vertexPositions, edgeGroups[i]);
   }
 
-  for (Eigen::ArrayX4i tetrahedronGroup : tetrahedra) {
-    polyscope::registerTetMesh("Volumes", vertexPositions, tetrahedronGroup);
+  for (int i = 0; i < triangleGroups.size(); i++) {
+    polyscope::registerSurfaceMesh("Triangle group " + std::to_string(i), vertexPositions, triangleGroups[i]);
+  }
+
+  for (int i = 0; i < tetrahedronGroups.size(); i++) {
+    polyscope::registerTetMesh("Tetrahedron group " + std::to_string(i), vertexPositions, tetrahedronGroups[i]);
   }
 }
 
