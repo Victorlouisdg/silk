@@ -4,7 +4,37 @@
 
 #include <iostream>
 
+#include <TinyAD/Utils/LineSearch.hh>
+#include <TinyAD/Utils/NewtonDecrement.hh>
+
 using namespace std;
+
+void callback(vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory,
+              vector<Eigen::ArrayXi> pointGroups,
+              vector<Eigen::ArrayX2i> edgeGroups,
+              vector<Eigen::ArrayX3i> triangleGroups,
+              vector<Eigen::ArrayX4i> tetrahedraGroups) {
+
+  int frame = silk::state::playback_frame_counter % vertexPositionHistory.size();
+  ImGui::Text("Frame %d", frame);
+
+  // Play-pause logic
+  if (silk::state::playback_paused) {
+    if (ImGui ::Button("Resume playback")) {
+      silk::state::playback_paused = false;
+    }
+  } else {
+    if (ImGui::Button("Pause playback")) {
+      silk::state::playback_paused = true;
+    }
+  }
+  if (silk::state::playback_paused) {
+    return;
+  }
+
+  silk::registerInPolyscope(vertexPositionHistory[frame], pointGroups, edgeGroups, triangleGroups, tetrahedraGroups);
+  silk::state::playback_frame_counter++;
+}
 
 int main() {
   Eigen::Matrix<double, Eigen::Dynamic, 3> vertexPositions;
@@ -66,7 +96,6 @@ int main() {
 
   tetrahedronElasticPotentialFunction.add_elements<4>(
       TinyAD::range(tetrahedra.rows()), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
-        // Evaluate element using either double or TinyAD::Double
         using ScalarT = TINYAD_SCALAR_TYPE(element);
         int tetrahedronIndex = element.handle;
         Eigen::Matrix3d Mr_inv = invertedTetrahedronRestShapes[tetrahedronIndex];
@@ -93,7 +122,6 @@ int main() {
 
   triangleStretchPotentialFunction.add_elements<3>(
       TinyAD::range(triangles.rows()), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
-        // Evaluate element using either double or TinyAD::Double
         using ScalarT = TINYAD_SCALAR_TYPE(element);
         int triangleIndex = element.handle;
         Eigen::Matrix2d invertedRestShape = invertedTriangleRestShapes[triangleIndex];
@@ -115,8 +143,11 @@ int main() {
         return stretchEnergy;
       });
 
+  double vertexMass = 1.0 / vertexCount;
+  Eigen::VectorXd vertexMasses = vertexMass * Eigen::VectorXd::Ones(vertexCount);
+
   Eigen::VectorXd initialPositions = silk::flatten(vertexPositions);
-  initialPositions(3 * 4 + 2) += 0.2;  // perturb the tetrahedron
+  initialPositions(3 * 4 + 2) -= 0.5;  // perturb the tetrahedron
 
   auto [elastic, elasticGradient] = tetrahedronElasticPotentialFunction.eval_with_gradient(initialPositions);
   auto [stretch, stretchGradient] = triangleStretchPotentialFunction.eval_with_gradient(initialPositions);
@@ -125,19 +156,104 @@ int main() {
   vertexVectorQuantities["tetrahedronElasticForces"] = silk::unflatten(-elasticGradient);
   vertexVectorQuantities["triangleStretchForces"] = silk::unflatten(-stretchGradient);
 
-  // vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory;
-  // vertexPositionHistory.push_back(vertexPositions);
-  // int timesteps = 100;
-  // int timestep_size = 0.01;
+  vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory;
+  vertexPositionHistory.push_back(vertexPositions);
+  int timesteps = 500;  // 100;
+  double timestepSize = 0.001;
 
-  // for (int i = 0; i < timesteps; i++) {
-  // }
+  Eigen::VectorXd initialVelocities = Eigen::VectorXd::Zero(initialPositions.size());
+
+  // For the simulation part, we mostly work with flat (3*n_vertices, 1) column vectors.
+  Eigen::VectorXd positions = initialPositions;
+  Eigen::VectorXd velocities = initialVelocities;
+
+  for (int i = 0; i < timesteps; i++) {
+
+    std::cout << i << std::endl;
+
+    double h = timestepSize;
+    Eigen::VectorXd x0 = positions;
+    Eigen::VectorXd v0 = velocities;
+
+    Eigen::VectorXd predictivePositionsFlat = x0 + h * v0;  //+ h * h;  // * Minv
+    Eigen::MatrixXd predictivePositions = silk::unflatten(predictivePositionsFlat);
+
+    auto x = x0;
+    int maxNewtonIterations = 50;
+    double convergence_eps = 1e-8;
+    Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> conjugateGradientSolver;
+    for (int i = 0; i < maxNewtonIterations; ++i) {
+
+      auto kineticPotentialFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
+      kineticPotentialFunction.add_elements<1>(
+          TinyAD::range(vertexCount), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
+            using ScalarT = TINYAD_SCALAR_TYPE(element);
+            int vertexIndex = element.handle;
+            Eigen::Vector3<ScalarT> position = element.variables(vertexIndex);
+            Eigen::Vector3d predictivePosition = predictivePositions.row(vertexIndex);
+            Eigen::Vector3<ScalarT> difference = position - predictivePosition;
+
+            double vertexMass = vertexMasses(vertexIndex);
+
+            ScalarT potential = 0.5 * vertexMass * difference.transpose() * difference;
+
+            return potential;
+          });
+
+      auto [tetrahedronElasticPotential,
+            tetrahedronElasticPotentialGradient,
+            tetrahedronElasticPotentialHessian] = tetrahedronElasticPotentialFunction.eval_with_hessian_proj(x);
+
+      auto [triangleStretchPotential,
+            triangleStretchPotentialGradient,
+            triangleStretchPotentialHessian] = triangleStretchPotentialFunction.eval_with_hessian_proj(x);
+
+      auto [kineticPotential,
+            kineticPotentialGradient,
+            kineticPotentialHessian] = kineticPotentialFunction.eval_with_hessian_proj(x);
+
+      auto incrementalPotential = kineticPotential + h * h * (tetrahedronElasticPotential + triangleStretchPotential);
+      auto incrementalPotentialGradient = kineticPotentialGradient +
+                                          h * h *
+                                              (tetrahedronElasticPotentialGradient + triangleStretchPotentialGradient);
+      auto incrementalPotentialHessian = kineticPotentialHessian +
+                                         h * h *
+                                             (tetrahedronElasticPotentialHessian + triangleStretchPotentialHessian);
+      double f = incrementalPotential;
+      Eigen::VectorXd g = incrementalPotentialGradient;
+      auto H_proj = incrementalPotentialHessian;
+
+      std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
+        return kineticPotentialFunction(x) +
+               h * h * (tetrahedronElasticPotentialFunction(x) + triangleStretchPotentialFunction(x));
+      };
+
+      Eigen::VectorXd d = conjugateGradientSolver.compute(H_proj).solve(-g);
+
+      if (TinyAD::newton_decrement(d, g) < convergence_eps) {
+        break;
+      }
+      x = TinyAD::line_search(x, d, f, g, func);
+    }
+
+    positions = x;
+    velocities = (x - x0).array() / h;
+
+    vertexPositionHistory.push_back(silk::unflatten(positions));
+  }
 
   Eigen::Matrix<double, Eigen::Dynamic, 3> perturbedVertexPositions = silk::unflatten(initialPositions);
 
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;
-  silk::registerInPolyscope(
-      perturbedVertexPositions, pointGroups, edgeGroups, triangleGroups, tetrahedraGroups, vertexVectorQuantities);
+  polyscope::options::automaticallyComputeSceneExtents = false;
+  polyscope::state::lengthScale = 5.;
+  // polyscope::state::boundingBox = std::tuple<glm::vec3, glm::vec3>{{-2., -2., -2.}, {2., 2., 2.}};
+
+  polyscope::state::userCallback = [&]() -> void {
+    callback(vertexPositionHistory, pointGroups, edgeGroups, triangleGroups, tetrahedraGroups);
+  };
+  // silk::registerInPolyscope(
+  //     perturbedVertexPositions, pointGroups, edgeGroups, triangleGroups, tetrahedraGroups, vertexVectorQuantities);
   polyscope::show();
 }
