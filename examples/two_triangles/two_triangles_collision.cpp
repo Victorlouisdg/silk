@@ -277,7 +277,7 @@ int main() {
       Eigen::MatrixXd D(vertexCount, 3);
       elasticPotentialFunction.x_to_data(d, [&](int v_idx, const Eigen::Vector3d &v) { D.row(v_idx) = v; });
 
-      D += vertexPositions;
+      D += vertexPositions;  // TODO: check whether this should be collisionV instead?
       double c = ipc::compute_collision_free_stepsize(collisionMesh, vertexPositions, D);
       // std::cout << "collision free step size: " << c << std::endl;
 
