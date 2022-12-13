@@ -1,55 +1,7 @@
-#include "geometrycentral/surface/direction_fields.h"
-#include "geometrycentral/surface/manifold_surface_mesh.h"
-#include "geometrycentral/surface/meshio.h"
-#include "geometrycentral/surface/simple_polygon_mesh.h"
-#include "geometrycentral/surface/surface_mesh.h"
-#include "geometrycentral/surface/surface_mesh_factories.h"
-
+#include "silk/visualization.hh"
 #include <iostream>
 
-#include "polyscope/curve_network.h"
-#include "polyscope/point_cloud.h"
-#include "polyscope/polyscope.h"
-#include "polyscope/surface_mesh.h"
-#include "polyscope/volume_mesh.h"
-
-#include "silk/simple_meshes.hh"
-#include "silk/visualization.hh"
-
-#include <igl/triangle/triangulate.h>
-
 using namespace std;
-using namespace geometrycentral;
-using namespace geometrycentral::surface;
-
-void registerInPolyscope(Eigen::Matrix<double, Eigen::Dynamic, 3> &vertexPositions,
-                         vector<Eigen::ArrayXi> &points,
-                         vector<Eigen::ArrayX2i> &edges,
-                         vector<Eigen::ArrayX3i> &triangles,
-                         vector<Eigen::ArrayX4i> &tetrahedra) {
-  // TODO: Currently all vertexPositions are added to all Polyscope structure. However this might beneficial consider
-  // whether it could be beneficial to extract only the vertexPositions used for each structure. This could improve
-  // performance and would allow custom vertexQuantities to be added to each structure separately. However it would
-  // require careful reindexing. Currently the vertexQuantities are global, so we add them only once to a sinlge point
-  // cloud.
-  polyscope::registerPointCloud("Vertices", vertexPositions);
-
-  for (Eigen::ArrayXi pointGroup : points) {
-    polyscope::registerPointCloud("Points", vertexPositions(pointGroup, Eigen::all));
-  }
-
-  for (Eigen::ArrayX2i edgeGroup : edges) {
-    polyscope::registerCurveNetwork("Edges", vertexPositions, edgeGroup);
-  }
-
-  for (Eigen::ArrayX3i triangleGroup : triangles) {
-    polyscope::registerSurfaceMesh("Surfaces", vertexPositions, triangleGroup);
-  }
-
-  for (Eigen::ArrayX4i tetrahedronGroup : tetrahedra) {
-    polyscope::registerTetMesh("Volumes", vertexPositions, tetrahedronGroup);
-  }
-}
 
 int main() {
   Eigen::Matrix<double, Eigen::Dynamic, 3> vertexPositions;
@@ -94,6 +46,6 @@ int main() {
 
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;
-  registerInPolyscope(vertexPositions, points, edges, triangles, tetrahedra);
+  silk::registerInPolyscope(vertexPositions, points, edges, triangles, tetrahedra);
   polyscope::show();
 }
