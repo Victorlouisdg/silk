@@ -153,11 +153,11 @@ int main() {
         return stretchEnergy;
       });
 
-  int timesteps = 200;
+  int timesteps = 400;
   double timestepSize = 0.001;
 
   vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory;
-  vertexPositions(3, 2) += 0.5;
+  // vertexPositions(3, 2) += 0.5;
   vertexPositionHistory.push_back(vertexPositions);
   Eigen::VectorXd initialPositions = silk::flatten(vertexPositions);
   Eigen::VectorXd initialVelocities = Eigen::VectorXd::Zero(initialPositions.size());
@@ -174,7 +174,7 @@ int main() {
 
   Eigen::MatrixXd gravityAccelerations = Eigen::MatrixXd::Zero(vertexCount, 3);
   gravityAccelerations.col(2) = standard_gravity * Eigen::VectorXd::Ones(vertexCount);
-  gravityAccelerations.topRows(3).col(2).array() = 0.0;
+  // gravityAccelerations.topRows(3).col(2).array() = 0.0;
 
   Eigen::VectorXd gravityAccelerationsFlat = silk::flatten(gravityAccelerations);
 
@@ -190,6 +190,15 @@ int main() {
   // Eigen::VectorXd externalForces = Eigen::VectorXd::Zero(positions.size());
 
   // std::cout << gravityAccelerations << std::endl;
+
+  // Script vertex 0, 1 and 2 to their initial positions
+  Eigen::ArrayXi scriptedVertices(3);
+  scriptedVertices << 0, 1, 2;
+  map<int, Eigen::Vector3d> scriptedPositions;
+  for (int i = 0; i < scriptedVertices.size(); i++) {
+    int vertexIndex = scriptedVertices(i);
+    scriptedPositions[vertexIndex] = vertexPositions.row(vertexIndex);
+  }
 
   for (int i = 0; i < timesteps; i++) {
 
@@ -228,6 +237,21 @@ int main() {
             return potential;
           });
 
+      auto scriptedPotentialFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
+      scriptedPotentialFunction.add_elements<1>(
+          TinyAD::range(scriptedVertices.size()), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
+            using ScalarT = TINYAD_SCALAR_TYPE(element);
+            int vertexIndex = element.handle;
+            Eigen::Vector3<ScalarT> position = element.variables(vertexIndex);
+            Eigen::Vector3d scriptedPosition = scriptedPositions[vertexIndex];
+            Eigen::Vector3<ScalarT> difference = position - scriptedPosition;
+
+            double vertexMass = vertexMasses(vertexIndex);
+
+            ScalarT potential = 0.5 * 1000000.0 * vertexMass * difference.transpose() * difference;
+            return potential;
+          });
+
       auto [triangleStretchPotential,
             triangleStretchPotentialGradient,
             triangleStretchPotentialHessian] = triangleStretchPotentialFunction.eval_with_hessian_proj(x);
@@ -236,23 +260,31 @@ int main() {
             kineticPotentialGradient,
             kineticPotentialHessian] = kineticPotentialFunction.eval_with_hessian_proj(x);
 
+      auto [scriptedPotential,
+            scriptedPotentialGradient,
+            scriptedPotentialHessian] = scriptedPotentialFunction.eval_with_hessian_proj(x);
+
       if (j == 0) {
         vertexVectorQuantities["triangleStretchForces"] = silk::unflatten(-triangleStretchPotentialGradient);
         vertexVectorQuantities["kineticGradient"] = silk::unflatten(-kineticPotentialGradient);
+        vertexVectorQuantities["scriptedGradient"] = silk::unflatten(-scriptedPotentialGradient);
       }
 
       // std::cout << "kineticPotential: " << kineticPotential << std::endl;
       // std::cout << kineticPotentialGradient << std::endl;
 
-      auto incrementalPotential = kineticPotential + h * h * triangleStretchPotential;
-      auto incrementalPotentialGradient = kineticPotentialGradient + h * h * triangleStretchPotentialGradient;
-      auto incrementalPotentialHessian = kineticPotentialHessian + h * h * triangleStretchPotentialHessian;
+      auto incrementalPotential = kineticPotential + scriptedPotential + h * h * triangleStretchPotential;
+      auto incrementalPotentialGradient = kineticPotentialGradient + scriptedPotentialGradient +
+                                          h * h * triangleStretchPotentialGradient;
+      auto incrementalPotentialHessian = kineticPotentialHessian + scriptedPotentialHessian +
+                                         h * h * triangleStretchPotentialHessian;
       double f = incrementalPotential;
       Eigen::VectorXd g = incrementalPotentialGradient;
       auto H_proj = incrementalPotentialHessian;
 
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
-        return kineticPotentialFunction(x) + h * h * triangleStretchPotentialFunction(x);
+        return kineticPotentialFunction(x) + scriptedPotentialFunction(x) +
+               h * h * triangleStretchPotentialFunction(x);
       };
 
       Eigen::VectorXd d = conjugateGradientSolver.compute(H_proj).solve(-g);
