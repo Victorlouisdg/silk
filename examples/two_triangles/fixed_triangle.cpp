@@ -7,6 +7,9 @@
 #include <TinyAD/Utils/LineSearch.hh>
 #include <TinyAD/Utils/NewtonDecrement.hh>
 
+#include <igl/edges.h>
+#include <ipc/ipc.hpp>
+
 using namespace std;
 
 void callback(vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory,
@@ -120,6 +123,12 @@ int main() {
   vector<Eigen::ArrayX3i> triangleGroups{triangleFixed, triangleElastic};
   vector<Eigen::ArrayX4i> tetrahedraGroups;
 
+  Eigen::MatrixXi collisionTriangles(triangleFixed.rows() + triangleElastic.rows(), 3);
+  collisionTriangles << triangleFixed, triangleElastic;
+
+  Eigen::MatrixXi collisionEdges;
+  igl::edges(collisionTriangles, collisionEdges);
+
   std::cout << vertexPositions << std::endl;
 
   vector<Eigen::Matrix2d> invertedTriangleRestShapes = silk::initializeInvertedTriangleRestShapes(vertexPositions,
@@ -200,7 +209,17 @@ int main() {
     scriptedPositions[vertexIndex] = vertexPositions.row(vertexIndex);
   }
 
+  ipc::CollisionMesh collisionMesh(vertexPositions, collisionEdges, collisionTriangles);
+  ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::BRUTE_FORCE;
+  ipc::Constraints constraintSet;
+  double dhat = 0.01;  // square of maximum distance at which repulsion works
+
   for (int i = 0; i < timesteps; i++) {
+
+    for (int i = 0; i < scriptedVertices.size(); i++) {
+      int vertexIndex = scriptedVertices(i);
+      scriptedPositions[vertexIndex](2) += timestepSize;
+    }
 
     map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexVectorQuantities;
 
@@ -264,35 +283,56 @@ int main() {
             scriptedPotentialGradient,
             scriptedPotentialHessian] = scriptedPotentialFunction.eval_with_hessian_proj(x);
 
+      // Barrier potential, gradient and hessian are provide by the ipc-toolkit
+      Eigen::MatrixXd collisionV = collisionMesh.vertices(silk::unflatten(x));
+      constraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
+      double barrierPotential = ipc::compute_barrier_potential(collisionMesh, collisionV, constraintSet, dhat);
+
+      Eigen::VectorXd barrierPotentialGradient = ipc::compute_barrier_potential_gradient(
+          collisionMesh, collisionV, constraintSet, dhat);
+      Eigen::SparseMatrix<double> barrierPotentialHessian = ipc::compute_barrier_potential_hessian(
+          collisionMesh, collisionV, constraintSet, dhat, /*project_to_psd=*/true);
+
       if (j == 0) {
         vertexVectorQuantities["triangleStretchForces"] = silk::unflatten(-triangleStretchPotentialGradient);
         vertexVectorQuantities["kineticGradient"] = silk::unflatten(-kineticPotentialGradient);
         vertexVectorQuantities["scriptedGradient"] = silk::unflatten(-scriptedPotentialGradient);
+        vertexVectorQuantities["barrierGradient"] = silk::unflatten(-barrierPotentialGradient);
       }
 
       // std::cout << "kineticPotential: " << kineticPotential << std::endl;
       // std::cout << kineticPotentialGradient << std::endl;
 
-      auto incrementalPotential = kineticPotential + scriptedPotential + h * h * triangleStretchPotential;
+      auto incrementalPotential = kineticPotential + scriptedPotential + barrierPotential +
+                                  h * h * triangleStretchPotential;
       auto incrementalPotentialGradient = kineticPotentialGradient + scriptedPotentialGradient +
-                                          h * h * triangleStretchPotentialGradient;
-      auto incrementalPotentialHessian = kineticPotentialHessian + scriptedPotentialHessian +
+                                          barrierPotentialGradient + h * h * triangleStretchPotentialGradient;
+      auto incrementalPotentialHessian = kineticPotentialHessian + scriptedPotentialHessian + barrierPotentialHessian +
                                          h * h * triangleStretchPotentialHessian;
       double f = incrementalPotential;
       Eigen::VectorXd g = incrementalPotentialGradient;
       auto H_proj = incrementalPotentialHessian;
 
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
-        return kineticPotentialFunction(x) + scriptedPotentialFunction(x) +
+        Eigen::MatrixXd collisionV = collisionMesh.vertices(silk::unflatten(x));
+        constraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
+        double barrierPotential = ipc::compute_barrier_potential(collisionMesh, collisionV, constraintSet, dhat);
+
+        return kineticPotentialFunction(x) + scriptedPotentialFunction(x) + barrierPotential +
                h * h * triangleStretchPotentialFunction(x);
       };
 
       Eigen::VectorXd d = conjugateGradientSolver.compute(H_proj).solve(-g);
 
+      Eigen::MatrixXd direction = silk::unflatten(d);
+      Eigen::MatrixXd positions_ = silk::unflatten(x);
+      double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction);
+
       if (TinyAD::newton_decrement(d, g) < convergence_eps) {
         break;
       }
-      x = TinyAD::line_search(x, d, f, g, func);
+      double s_max = min(c, 1.0);
+      x = TinyAD::line_search(x, d, f, g, func, s_max);
     }
 
     positions = x;
