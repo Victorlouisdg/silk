@@ -268,7 +268,7 @@ int main() {
 
     Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> conjugateGradientSolver;
     for (int j = 0; j < maxNewtonIterations; ++j) {
-      // std::cout << "Newton iteration: " << j << std::endl;
+      std::cout << "Newton iteration: " << j << std::endl;
 
       auto kineticPotentialFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
       kineticPotentialFunction.add_elements<1>(
@@ -333,17 +333,24 @@ int main() {
       // std::cout << "kineticPotential: " << kineticPotential << std::endl;
       // std::cout << kineticPotentialGradient << std::endl;
 
-      auto incrementalPotential = kineticPotential + scriptedPotential + barrierPotential +
-                                  h * h * triangleStretchPotential;
-      auto incrementalPotentialGradient = kineticPotentialGradient + scriptedPotentialGradient +
-                                          barrierPotentialGradient + h * h * triangleStretchPotentialGradient;
-      auto incrementalPotentialHessian = kineticPotentialHessian + scriptedPotentialHessian + barrierPotentialHessian +
-                                         h * h * triangleStretchPotentialHessian;
-
-      // I don't think a better kappa is really needed yet.
+      // I can't seem to get much benefit out of the adaptive stiffness.
       // auto Egradient = kineticPotentialGradient + scriptedPotentialGradient + h * h *
       // triangleStretchPotentialGradient; auto kappa = -Egradient.dot(barrierPotentialGradient) /
-      // barrierPotentialGradient.squaredNorm(); cout << "kappa: " << kappa << endl;
+      // barrierPotentialGradient.squaredNorm();
+      // // cout << "kappa: " << kappa << endl;
+      // std::cout << "Newton iteration: " << j << ", kappa: " << kappa << std::endl;
+
+      // if (isnan(kappa) || kappa < 0.1) {
+      //   kappa = 0.1;
+      // }
+      double kappa = 1.0;
+
+      auto incrementalPotential = kineticPotential + scriptedPotential + kappa * barrierPotential +
+                                  h * h * triangleStretchPotential;
+      auto incrementalPotentialGradient = kineticPotentialGradient + scriptedPotentialGradient +
+                                          kappa * barrierPotentialGradient + h * h * triangleStretchPotentialGradient;
+      auto incrementalPotentialHessian = kineticPotentialHessian + scriptedPotentialHessian +
+                                         kappa * barrierPotentialHessian + h * h * triangleStretchPotentialHessian;
 
       double f = incrementalPotential;
       Eigen::VectorXd g = incrementalPotentialGradient;
@@ -376,7 +383,11 @@ int main() {
       double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction);
 
       double s_max = min(c, 1.0);
-      x = TinyAD::line_search(x, d, f, g, func, s_max);
+
+      // This line search seems to be take up most time for large time steps.
+      // TODO figure out why so many line search iterations are needed.
+      // Because it means the search direction is bad.
+      x = TinyAD::line_search(x, d, f, g, func, s_max, 0.5);
     }
 
     positions = x;
