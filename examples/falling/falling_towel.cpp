@@ -10,9 +10,11 @@
 #include <igl/edges.h>
 #include <igl/triangle/triangulate.h>
 
+#include <chrono>
 #include <ipc/ipc.hpp>
 
 using namespace std;
+using namespace std::chrono;
 
 void callback(vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory,
               vector<Eigen::ArrayXi> pointGroups,
@@ -88,7 +90,7 @@ tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> makeTriangulate
 
   Eigen::MatrixXd H;
 
-  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.005q", newVertices2D, newTriangles);
+  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.1q", newVertices2D, newTriangles);
 
   Eigen::MatrixXd newVertexCoordinates = Eigen::MatrixXd::Zero(newVertices2D.rows(), 3);
   newVertexCoordinates.leftCols(2) = newVertices2D;
@@ -234,9 +236,11 @@ int main() {
   }
 
   ipc::CollisionMesh collisionMesh(vertexPositions, collisionEdges, collisionTriangles);
-  ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::BRUTE_FORCE;
+  ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::HASH_GRID;
   ipc::Constraints constraintSet;
   double dhat = 0.01;  // square of maximum distance at which repulsion works
+
+  auto start = high_resolution_clock::now();
 
   for (int i = 0; i < timesteps; i++) {
 
@@ -333,6 +337,12 @@ int main() {
                                           barrierPotentialGradient + h * h * triangleStretchPotentialGradient;
       auto incrementalPotentialHessian = kineticPotentialHessian + scriptedPotentialHessian + barrierPotentialHessian +
                                          h * h * triangleStretchPotentialHessian;
+
+      // I don't think a better kappa is really needed yet.
+      // auto Egradient = kineticPotentialGradient + scriptedPotentialGradient + h * h *
+      // triangleStretchPotentialGradient; auto kappa = -Egradient.dot(barrierPotentialGradient) /
+      // barrierPotentialGradient.squaredNorm(); cout << "kappa: " << kappa << endl;
+
       double f = incrementalPotential;
       Eigen::VectorXd g = incrementalPotentialGradient;
       auto H_proj = incrementalPotentialHessian;
@@ -367,6 +377,10 @@ int main() {
     vertexVectorQuantities["velocities"] = silk::unflatten(velocities);
     vertexVectorQuantitiesHistory.push_back(vertexVectorQuantities);
   }
+
+  auto stop = high_resolution_clock::now();
+  auto duration = duration_cast<seconds>(stop - start);
+  cout << "Time taken: " << duration.count() << " seconds " << endl;
 
   // Add empty map for the last timestep.
   vertexVectorQuantitiesHistory.push_back(map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>());

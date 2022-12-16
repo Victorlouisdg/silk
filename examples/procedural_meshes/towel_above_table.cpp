@@ -38,7 +38,7 @@ tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> makeTriangulate
 
   Eigen::MatrixXd H;
 
-  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.005q", newVertices2D, newTriangles);
+  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.1q", newVertices2D, newTriangles);
 
   Eigen::MatrixXd newVertexCoordinates = Eigen::MatrixXd::Zero(newVertices2D.rows(), 3);
   newVertexCoordinates.leftCols(2) = newVertices2D;
