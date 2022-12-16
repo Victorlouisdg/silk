@@ -263,10 +263,12 @@ int main() {
 
     auto x = x0;
     int maxNewtonIterations = 50;
-    double convergence_eps = 1e-20;
+    double convergence_eps = 1e-20;  // Much lower eps needed for the Tiny Newton decrement stopping criterion
+    double convergenceEps = 1e-5;
+
     Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> conjugateGradientSolver;
     for (int j = 0; j < maxNewtonIterations; ++j) {
-      std::cout << "Newton iteration: " << j << std::endl;
+      // std::cout << "Newton iteration: " << j << std::endl;
 
       auto kineticPotentialFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
       kineticPotentialFunction.add_elements<1>(
@@ -358,13 +360,21 @@ int main() {
 
       Eigen::VectorXd d = conjugateGradientSolver.compute(H_proj).solve(-g);
 
+      // infinity norm of d, see termination in IPC paper
+      double dmax = d.cwiseAbs().maxCoeff();
+      double stoppingMeasure = dmax / h;
+      if (stoppingMeasure < convergenceEps) {
+        break;
+      }
+
+      // if (TinyAD::newton_decrement(d, g) < convergence_eps) {
+      //   break;
+      // }
+
       Eigen::MatrixXd direction = silk::unflatten(d);
       Eigen::MatrixXd positions_ = silk::unflatten(x);
       double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction);
 
-      if (TinyAD::newton_decrement(d, g) < convergence_eps) {
-        break;
-      }
       double s_max = min(c, 1.0);
       x = TinyAD::line_search(x, d, f, g, func, s_max);
     }
