@@ -13,6 +13,10 @@
 #include <chrono>
 #include <ipc/ipc.hpp>
 
+#include <Eigen/Core>
+#include <TinyAD/Detail/EigenVectorTypedefs.hh>
+#include <TinyAD/Utils/Out.hh>
+
 using namespace std;
 using namespace std::chrono;
 
@@ -125,6 +129,60 @@ tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> appendElements(
   return std::make_tuple(vertices, newElements);
 }
 
+template<typename PassiveT, int d>
+bool armijo_condition(const PassiveT _f_curr,
+                      const PassiveT newValue,
+                      const PassiveT _s,
+                      const Eigen::Vector<PassiveT, d> &searchDirection,
+                      const Eigen::Vector<PassiveT, d> &gradient,
+                      const PassiveT _armijo_const) {
+  return newValue <= _f_curr + _armijo_const * _s * searchDirection.dot(gradient);
+}
+
+template<typename PassiveT, int d, typename EvalFunctionT>
+Eigen::Vector<PassiveT, d> lineSearch(
+    const Eigen::Vector<PassiveT, d> &initialInputs,
+    const Eigen::Vector<PassiveT, d> &searchDirection,
+    const PassiveT initialValue,
+    const Eigen::Vector<PassiveT, d> &gradient,
+    const EvalFunctionT &objectiveFunction,  // Callable of type T(const Eigen::Vector<T, d>&)
+    const PassiveT maxStepSize = 1.0,        // Initial step size
+    const PassiveT stepSizeShrinkFactor = 0.8,
+    const int maxStepSizesToTry = 64,
+    const PassiveT _armijo_const = 1e-4) {
+  // Check input
+  TINYAD_ASSERT_EQ(initialInputs.size(), gradient.size());
+  if (maxStepSize <= 0.0)
+    TINYAD_ERROR_throw("Max step size not positive.");
+
+  const bool isDescentDirection = gradient.dot(searchDirection) < 0.0;
+  std::cout << "isDescentDirection: " << isDescentDirection << std::endl;
+
+  // Also try a step size of 1.0 (if valid)
+  const bool tryStepSizeOne = maxStepSize > 1.0;
+
+  Eigen::Vector<PassiveT, d> inputs = initialInputs;
+  PassiveT stepSize = maxStepSize;
+  for (int i = 0; i < maxStepSizesToTry; ++i) {
+    inputs = initialInputs + stepSize * searchDirection;
+    const PassiveT newValue = objectiveFunction(inputs);
+    if (armijo_condition(initialValue, newValue, stepSize, searchDirection, gradient, _armijo_const)) {
+      std::cout << "Line search needed " << i + 1 << " iterations." << std::endl;
+      return inputs;
+    }
+
+    if (tryStepSizeOne && stepSize > 1.0 && stepSize * stepSizeShrinkFactor < 1.0) {
+      stepSize = 1.0;
+      continue;
+    }
+
+    stepSize *= stepSizeShrinkFactor;
+  }
+
+  TINYAD_WARNING("Line search couldn't find improvement. Gradient max norm is " << gradient.cwiseAbs().maxCoeff());
+  return initialInputs;
+}
+
 int main() {
 
   Eigen::Matrix<double, Eigen::Dynamic, 3> vertexPositions;
@@ -188,8 +246,8 @@ int main() {
         return stretchEnergy;
       });
 
-  int timesteps = 400;
-  double timestepSize = 0.001;
+  int timesteps = 100;
+  double timestepSize = 0.01;
 
   vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory;
   // vertexPositions(3, 2) += 0.5;
@@ -242,7 +300,7 @@ int main() {
 
   auto start = high_resolution_clock::now();
 
-  for (int i = 0; i < timesteps; i++) {
+  for (int timestep = 0; timestep < timesteps; timestep++) {
 
     // for (int i = 0; i < scriptedVertices.size(); i++) {
     //   int vertexIndex = scriptedVertices(i);
@@ -251,7 +309,7 @@ int main() {
 
     map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexVectorQuantities;
 
-    std::cout << "Timestep: " << i << std::endl;
+    std::cout << "=== Timestep: " << timestep << std::endl;
 
     double h = timestepSize;
     Eigen::VectorXd x0 = positions;
@@ -267,8 +325,8 @@ int main() {
     double convergenceEps = 1e-5;
 
     Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> conjugateGradientSolver;
-    for (int j = 0; j < maxNewtonIterations; ++j) {
-      std::cout << "Newton iteration: " << j << std::endl;
+    for (int newtonIteration = 0; newtonIteration < maxNewtonIterations; ++newtonIteration) {
+      std::cout << "Newton iteration: " << newtonIteration << std::endl;
 
       auto kineticPotentialFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
       kineticPotentialFunction.add_elements<1>(
@@ -313,17 +371,27 @@ int main() {
             scriptedPotentialGradient,
             scriptedPotentialHessian] = scriptedPotentialFunction.eval_with_hessian_proj(x);
 
+      std::cout << "Starting barrier evaluation" << std::endl;
       // Barrier potential, gradient and hessian are provide by the ipc-toolkit
       Eigen::MatrixXd collisionV = collisionMesh.vertices(silk::unflatten(x));
       constraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
+      std::cout << "Constrains: " << constraintSet.size() << std::endl;
+
+      std::cout << "Potential" << std::endl;
       double barrierPotential = ipc::compute_barrier_potential(collisionMesh, collisionV, constraintSet, dhat);
 
+      std::cout << "Gradient" << std::endl;
       Eigen::VectorXd barrierPotentialGradient = ipc::compute_barrier_potential_gradient(
           collisionMesh, collisionV, constraintSet, dhat);
+
+      std::cout << "Hessian" << std::endl;
       Eigen::SparseMatrix<double> barrierPotentialHessian = ipc::compute_barrier_potential_hessian(
           collisionMesh, collisionV, constraintSet, dhat, /*project_to_psd=*/true);
 
-      if (j == 0) {
+      std::cout << "Hessian Done" << std::endl;
+      std::cout << barrierPotentialHessian.nonZeros() << std::endl;
+
+      if (newtonIteration == 0) {
         vertexVectorQuantities["triangleStretchForces"] = silk::unflatten(-triangleStretchPotentialGradient);
         vertexVectorQuantities["kineticGradient"] = silk::unflatten(-kineticPotentialGradient);
         vertexVectorQuantities["scriptedGradient"] = silk::unflatten(-scriptedPotentialGradient);
@@ -365,7 +433,9 @@ int main() {
                h * h * triangleStretchPotentialFunction(x);
       };
 
+      std::cout << "Starting conjugate gradient" << std::endl;
       Eigen::VectorXd d = conjugateGradientSolver.compute(H_proj).solve(-g);
+      std::cout << "Conjugate gradient done" << std::endl;
 
       // infinity norm of d, see termination in IPC paper
       double dmax = d.cwiseAbs().maxCoeff();
@@ -380,14 +450,21 @@ int main() {
 
       Eigen::MatrixXd direction = silk::unflatten(d);
       Eigen::MatrixXd positions_ = silk::unflatten(x);
-      double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction);
+
+      std::cout << "Starting intersection free step" << std::endl;
+      double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction, method, dhat);
+      std::cout << "End intersection free step" << std::endl;
+      std::cout << "c: " << c << std::endl;
 
       double s_max = min(c, 1.0);
 
       // This line search seems to be take up most time for large time steps.
       // TODO figure out why so many line search iterations are needed.
       // Because it means the search direction is bad.
-      x = TinyAD::line_search(x, d, f, g, func, s_max, 0.5);
+
+      std::cout << "Starting line search of timestep " << timestep << " and iteration " << newtonIteration
+                << std::endl;
+      x = lineSearch(x, d, f, g, func, s_max, 0.5);
     }
 
     positions = x;
