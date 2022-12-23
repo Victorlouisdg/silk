@@ -1,5 +1,6 @@
 #include "silk/conversions.hh"
 #include "silk/energies.hh"
+#include "silk/optimization/line_search.hh"
 #include "silk/visualization.hh"
 
 #include <iostream>
@@ -12,10 +13,6 @@
 
 #include <chrono>
 #include <ipc/ipc.hpp>
-
-#include <Eigen/Core>
-#include <TinyAD/Detail/EigenVectorTypedefs.hh>
-#include <TinyAD/Utils/Out.hh>
 
 using namespace std;
 using namespace std::chrono;
@@ -129,60 +126,6 @@ tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> appendElements(
   return std::make_tuple(vertices, newElements);
 }
 
-template<typename PassiveT, int d>
-bool armijo_condition(const PassiveT _f_curr,
-                      const PassiveT newValue,
-                      const PassiveT _s,
-                      const Eigen::Vector<PassiveT, d> &searchDirection,
-                      const Eigen::Vector<PassiveT, d> &gradient,
-                      const PassiveT _armijo_const) {
-  return newValue <= _f_curr + _armijo_const * _s * searchDirection.dot(gradient);
-}
-
-template<typename PassiveT, int d, typename EvalFunctionT>
-Eigen::Vector<PassiveT, d> lineSearch(
-    const Eigen::Vector<PassiveT, d> &initialInputs,
-    const Eigen::Vector<PassiveT, d> &searchDirection,
-    const PassiveT initialValue,
-    const Eigen::Vector<PassiveT, d> &gradient,
-    const EvalFunctionT &objectiveFunction,  // Callable of type T(const Eigen::Vector<T, d>&)
-    const PassiveT maxStepSize = 1.0,        // Initial step size
-    const PassiveT stepSizeShrinkFactor = 0.8,
-    const int maxStepSizesToTry = 64,
-    const PassiveT _armijo_const = 1e-4) {
-  // Check input
-  TINYAD_ASSERT_EQ(initialInputs.size(), gradient.size());
-  if (maxStepSize <= 0.0)
-    TINYAD_ERROR_throw("Max step size not positive.");
-
-  const bool isDescentDirection = gradient.dot(searchDirection) < 0.0;
-  std::cout << "isDescentDirection: " << isDescentDirection << std::endl;
-
-  // Also try a step size of 1.0 (if valid)
-  const bool tryStepSizeOne = maxStepSize > 1.0;
-
-  Eigen::Vector<PassiveT, d> inputs = initialInputs;
-  PassiveT stepSize = maxStepSize;
-  for (int i = 0; i < maxStepSizesToTry; ++i) {
-    inputs = initialInputs + stepSize * searchDirection;
-    const PassiveT newValue = objectiveFunction(inputs);
-    if (armijo_condition(initialValue, newValue, stepSize, searchDirection, gradient, _armijo_const)) {
-      std::cout << "Line search needed " << i + 1 << " iterations." << std::endl;
-      return inputs;
-    }
-
-    if (tryStepSizeOne && stepSize > 1.0 && stepSize * stepSizeShrinkFactor < 1.0) {
-      stepSize = 1.0;
-      continue;
-    }
-
-    stepSize *= stepSizeShrinkFactor;
-  }
-
-  TINYAD_WARNING("Line search couldn't find improvement. Gradient max norm is " << gradient.cwiseAbs().maxCoeff());
-  return initialInputs;
-}
-
 int main() {
 
   Eigen::Matrix<double, Eigen::Dynamic, 3> vertexPositions;
@@ -246,7 +189,30 @@ int main() {
         return stretchEnergy;
       });
 
-  int timesteps = 100;
+  triangleStretchPotentialFunction.add_elements<3>(
+      TinyAD::range(clothTriangles.rows()), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
+        using ScalarT = TINYAD_SCALAR_TYPE(element);
+        int triangleIndex = element.handle;
+        Eigen::Matrix2d invertedRestShape = invertedTriangleRestShapes[triangleIndex];
+
+        Eigen::Vector3<ScalarT> x0 = element.variables(clothTriangles(triangleIndex, 0));
+        Eigen::Vector3<ScalarT> x1 = element.variables(clothTriangles(triangleIndex, 1));
+        Eigen::Vector3<ScalarT> x2 = element.variables(clothTriangles(triangleIndex, 2));
+
+        Eigen::Matrix<ScalarT, 3, 2> F = silk::triangleDeformationGradient(x0, x1, x2, invertedRestShape);
+        ScalarT shearPotential = silk::baraffWitkinShearPotential(F);
+
+        double shearStiffness = 1.0;
+        double restArea = triangleRestAreas(triangleIndex);
+        double areaFactor = sqrt(restArea);
+
+        ScalarT shearEnergy = shearStiffness * areaFactor * shearPotential;
+
+        return shearEnergy;
+      });
+
+  // double simulatedElapsedTime = 1.0;
+  int timesteps = 20;
   double timestepSize = 0.01;
 
   vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory;
@@ -464,7 +430,7 @@ int main() {
 
       std::cout << "Starting line search of timestep " << timestep << " and iteration " << newtonIteration
                 << std::endl;
-      x = lineSearch(x, d, f, g, func, s_max, 0.5);
+      x = silk::lineSearch(x, d, f, g, func, s_max, 0.5);
     }
 
     positions = x;
