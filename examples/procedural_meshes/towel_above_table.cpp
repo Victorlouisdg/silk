@@ -63,7 +63,7 @@ tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> makeTwoTriangle
   return std::make_tuple(vertexCoordinates, triangles);
 }
 
-tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> appendElements(
+tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> appendTriangles(
     Eigen::Matrix<double, Eigen::Dynamic, 3> &vertices,
     Eigen::Matrix<double, Eigen::Dynamic, 3> &newVertices,
     Eigen::ArrayX3i &newElements) {
@@ -79,7 +79,7 @@ int main() {
   Eigen::Matrix<double, Eigen::Dynamic, 3> groundVertices;
   Eigen::ArrayX3i groundTriangles;
   std::tie(groundVertices, groundTriangles) = makeTwoTriangleSquare();
-  std::tie(vertexPositions, groundTriangles) = appendElements(vertexPositions, groundVertices, groundTriangles);
+  std::tie(vertexPositions, groundTriangles) = appendTriangles(vertexPositions, groundVertices, groundTriangles);
 
   Eigen::Matrix<double, Eigen::Dynamic, 3> clothVertices;
   Eigen::ArrayX3i clothTriangles;
@@ -89,7 +89,7 @@ int main() {
   clothVertices = (rotationMatrix * clothVertices.transpose()).transpose();
   clothVertices.array() *= 0.5;
   clothVertices.col(2).array() += 0.8;
-  std::tie(vertexPositions, clothTriangles) = appendElements(vertexPositions, clothVertices, clothTriangles);
+  std::tie(vertexPositions, clothTriangles) = appendTriangles(vertexPositions, clothVertices, clothTriangles);
 
   vector<Eigen::ArrayXi> pointGroups;
   vector<Eigen::ArrayX2i> edgeGroups;

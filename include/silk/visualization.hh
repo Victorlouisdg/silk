@@ -63,6 +63,61 @@ void registerInPolyscope(Eigen::Matrix<double, Eigen::Dynamic, 3> &vertexPositio
   }
 }
 
+void playHistoryCallback(vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory,
+                         vector<Eigen::ArrayXi> pointGroups,
+                         vector<Eigen::ArrayX2i> edgeGroups,
+                         vector<Eigen::ArrayX3i> triangleGroups,
+                         vector<Eigen::ArrayX4i> tetrahedraGroups,
+                         vector<map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>> vertexVectorQuantitiesHistory) {
+
+  int frame = silk::state::playback_frame_counter % vertexPositionHistory.size();
+  ImGui::Text("Frame %d", frame);
+
+  if (ImGui ::Button("Next frame")) {
+    silk::state::playback_frame_counter++;
+    frame = silk::state::playback_frame_counter % vertexPositionHistory.size();
+    silk::registerInPolyscope(vertexPositionHistory[frame],
+                              pointGroups,
+                              edgeGroups,
+                              triangleGroups,
+                              tetrahedraGroups,
+                              vertexVectorQuantitiesHistory[frame]);
+  }
+
+  if (ImGui ::Button("Previous frame")) {
+    silk::state::playback_frame_counter--;
+    frame = silk::state::playback_frame_counter % vertexPositionHistory.size();
+    silk::registerInPolyscope(vertexPositionHistory[frame],
+                              pointGroups,
+                              edgeGroups,
+                              triangleGroups,
+                              tetrahedraGroups,
+                              vertexVectorQuantitiesHistory[frame]);
+  }
+
+  // Play-pause logic
+  if (silk::state::playback_paused) {
+    if (ImGui ::Button("Resume playback")) {
+      silk::state::playback_paused = false;
+    }
+  } else {
+    if (ImGui::Button("Pause playback")) {
+      silk::state::playback_paused = true;
+    }
+  }
+  if (silk::state::playback_paused) {
+    return;
+  }
+
+  silk::registerInPolyscope(vertexPositionHistory[frame],
+                            pointGroups,
+                            edgeGroups,
+                            triangleGroups,
+                            tetrahedraGroups,
+                            vertexVectorQuantitiesHistory[frame]);
+  silk::state::playback_frame_counter++;
+}
+
 void addSmoothestVertexDirectionField(VertexPositionGeometry &geometry,
                                       SurfaceMesh &mesh,
                                       polyscope::SurfaceMesh &psMesh) {

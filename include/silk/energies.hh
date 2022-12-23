@@ -8,35 +8,25 @@
 
 #include <TinyAD/ScalarFunction.hh>
 
+#include "silk/types.hh"
+
 using namespace std;
-using namespace geometrycentral;
-using namespace geometrycentral::surface;
 
 namespace silk {
 
-double triangleArea(Eigen::Vector3d const &x0, Eigen::Vector3d const &x1, Eigen::Vector3d const &x2) {
-  return 0.5 * ((x1 - x0).cross(x2 - x0)).norm();
-}
+/**
+ * @brief Compute the inverse of the rest shape matrix for each triangle. The rest shape matrix is a 2x2 matrix that
+ * contains are column the relative vector going from v0 to v1 an v0 to v2. It is also sometimes called the material
+ * matrix. The inverse of this matrix is needed to calculate the triangle's deformation gradient.
+ *
+ * @param vertexPositions
+ * @param triangles
+ * @return for each triangle its inverted rest shape matrix.
+ */
+vector<Eigen::Matrix2d> initializeInvertedTriangleRestShapes(const VertexPositions &vertexPositions,
+                                                             const Triangles &triangles) {
 
-Eigen::VectorXd calculateAreas(Eigen::Matrix<double, Eigen::Dynamic, 3> const &vertexPositions,
-                               Eigen::ArrayX3i const &triangles) {
-
-  Eigen::VectorXd areas(triangles.rows());
-
-  for (int triangleIndex = 0; triangleIndex < triangles.rows(); ++triangleIndex) {
-    Eigen::Vector3d x0 = vertexPositions.row(triangles(triangleIndex, 0));
-    Eigen::Vector3d x1 = vertexPositions.row(triangles(triangleIndex, 1));
-    Eigen::Vector3d x2 = vertexPositions.row(triangles(triangleIndex, 2));
-
-    areas(triangleIndex) = triangleArea(x0, x1, x2);
-  };
-  return areas;
-}
-
-std::vector<Eigen::Matrix2d> initializeInvertedTriangleRestShapes(
-    Eigen::Matrix<double, Eigen::Dynamic, 3> const &vertexPositions, Eigen::ArrayX3i const &triangles) {
-
-  std::vector<Eigen::Matrix2d> invertedRestShapes;
+  vector<Eigen::Matrix2d> invertedRestShapes;
   invertedRestShapes.reserve(triangles.rows());
 
   for (int triangleIndex = 0; triangleIndex < triangles.rows(); ++triangleIndex) {
@@ -47,7 +37,6 @@ std::vector<Eigen::Matrix2d> initializeInvertedTriangleRestShapes(
     // Create surrogates for u1 - u0 and u2 - u0, x1x0 is aligned with the u-axis in 2D by convention.
     // Other choices are possible and valid. This type of initialization is not well suited for anisotropic materials.
     // Because the choice of anisotropy directions is quite abritrary.
-
     Eigen::Vector3d x1x0 = x1 - x0;
     Eigen::Vector3d x2x0 = x2 - x0;
 
@@ -64,10 +53,10 @@ std::vector<Eigen::Matrix2d> initializeInvertedTriangleRestShapes(
   return invertedRestShapes;
 }
 
-std::vector<Eigen::Matrix3d> initializeInvertedTetrahedronRestShapes(
-    Eigen::Matrix<double, Eigen::Dynamic, 3> const &vertexPositions, Eigen::ArrayX4i const &tetrahedra) {
+vector<Eigen::Matrix3d> initializeInvertedTetrahedronRestShapes(VertexPositions const &vertexPositions,
+                                                                Tetrahedra const &tetrahedra) {
 
-  std::vector<Eigen::Matrix3d> invertedRestShapes;
+  vector<Eigen::Matrix3d> invertedRestShapes;
   invertedRestShapes.reserve(tetrahedra.rows());
 
   for (int tetrahedronIndex = 0; tetrahedronIndex < tetrahedra.rows(); ++tetrahedronIndex) {

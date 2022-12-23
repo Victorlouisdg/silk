@@ -1,5 +1,7 @@
 #include "silk/conversions.hh"
 #include "silk/energies.hh"
+#include "silk/geometry/area.hh"
+#include "silk/mesh_construction.hh"
 #include "silk/optimization/line_search.hh"
 #include "silk/visualization.hh"
 
@@ -16,61 +18,6 @@
 
 using namespace std;
 using namespace std::chrono;
-
-void callback(vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory,
-              vector<Eigen::ArrayXi> pointGroups,
-              vector<Eigen::ArrayX2i> edgeGroups,
-              vector<Eigen::ArrayX3i> triangleGroups,
-              vector<Eigen::ArrayX4i> tetrahedraGroups,
-              vector<map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>> vertexVectorQuantitiesHistory) {
-
-  int frame = silk::state::playback_frame_counter % vertexPositionHistory.size();
-  ImGui::Text("Frame %d", frame);
-
-  if (ImGui ::Button("Next frame")) {
-    silk::state::playback_frame_counter++;
-    frame = silk::state::playback_frame_counter % vertexPositionHistory.size();
-    silk::registerInPolyscope(vertexPositionHistory[frame],
-                              pointGroups,
-                              edgeGroups,
-                              triangleGroups,
-                              tetrahedraGroups,
-                              vertexVectorQuantitiesHistory[frame]);
-  }
-
-  if (ImGui ::Button("Previous frame")) {
-    silk::state::playback_frame_counter--;
-    frame = silk::state::playback_frame_counter % vertexPositionHistory.size();
-    silk::registerInPolyscope(vertexPositionHistory[frame],
-                              pointGroups,
-                              edgeGroups,
-                              triangleGroups,
-                              tetrahedraGroups,
-                              vertexVectorQuantitiesHistory[frame]);
-  }
-
-  // Play-pause logic
-  if (silk::state::playback_paused) {
-    if (ImGui ::Button("Resume playback")) {
-      silk::state::playback_paused = false;
-    }
-  } else {
-    if (ImGui::Button("Pause playback")) {
-      silk::state::playback_paused = true;
-    }
-  }
-  if (silk::state::playback_paused) {
-    return;
-  }
-
-  silk::registerInPolyscope(vertexPositionHistory[frame],
-                            pointGroups,
-                            edgeGroups,
-                            triangleGroups,
-                            tetrahedraGroups,
-                            vertexVectorQuantitiesHistory[frame]);
-  silk::state::playback_frame_counter++;
-}
 
 tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> makeTriangulatedSquare() {
   Eigen::RowVector3d v0(-1.0, -1.0, 0.0);
@@ -116,24 +63,17 @@ tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> makeTwoTriangle
   return std::make_tuple(vertexCoordinates, triangles);
 }
 
-tuple<Eigen::Matrix<double, Eigen::Dynamic, 3>, Eigen::ArrayX3i> appendElements(
-    Eigen::Matrix<double, Eigen::Dynamic, 3> &vertices,
-    Eigen::Matrix<double, Eigen::Dynamic, 3> &newVertices,
-    Eigen::ArrayX3i &newElements) {
-  newElements += vertices.rows();
-  vertices.conservativeResize(vertices.rows() + newVertices.rows(), 3);
-  vertices.bottomRows(newVertices.rows()) = newVertices;
-  return std::make_tuple(vertices, newElements);
-}
-
 int main() {
-
   Eigen::Matrix<double, Eigen::Dynamic, 3> vertexPositions;
+  vector<Eigen::ArrayXi> pointGroups;
+  vector<Eigen::ArrayX2i> edgeGroups;
+  vector<Eigen::ArrayX3i> triangleGroups;
+  vector<Eigen::ArrayX4i> tetrahedraGroups;
 
   Eigen::Matrix<double, Eigen::Dynamic, 3> groundVertices;
   Eigen::ArrayX3i groundTriangles;
   std::tie(groundVertices, groundTriangles) = makeTwoTriangleSquare();
-  std::tie(vertexPositions, groundTriangles) = appendElements(vertexPositions, groundVertices, groundTriangles);
+  silk::appendTriangles(vertexPositions, triangleGroups, groundVertices, groundTriangles);
 
   Eigen::Matrix<double, Eigen::Dynamic, 3> clothVertices;
   Eigen::ArrayX3i clothTriangles;
@@ -143,12 +83,7 @@ int main() {
   clothVertices = (rotationMatrix * clothVertices.transpose()).transpose();
   clothVertices.array() *= 0.5;
   clothVertices.col(2).array() += 0.8;
-  std::tie(vertexPositions, clothTriangles) = appendElements(vertexPositions, clothVertices, clothTriangles);
-
-  vector<Eigen::ArrayXi> pointGroups;
-  vector<Eigen::ArrayX2i> edgeGroups;
-  vector<Eigen::ArrayX3i> triangleGroups{groundTriangles, clothTriangles};
-  vector<Eigen::ArrayX4i> tetrahedraGroups;
+  silk::appendTriangles(vertexPositions, triangleGroups, clothVertices, clothTriangles);
 
   Eigen::MatrixXi collisionTriangles(groundTriangles.rows() + clothTriangles.rows(), 3);
   collisionTriangles << groundTriangles, clothTriangles;
@@ -160,7 +95,7 @@ int main() {
 
   vector<Eigen::Matrix2d> invertedTriangleRestShapes = silk::initializeInvertedTriangleRestShapes(vertexPositions,
                                                                                                   clothTriangles);
-  Eigen::VectorXd triangleRestAreas = silk::calculateAreas(vertexPositions, clothTriangles);
+  Eigen::VectorXd triangleRestAreas = silk::triangleAreas(vertexPositions, clothTriangles);
 
   // From this point, no more vertices can be added. TinyAD needs this number at compile time.
   int vertexCount = vertexPositions.rows();
@@ -456,12 +391,12 @@ int main() {
   // polyscope::state::boundingBox = std::tuple<glm::vec3, glm::vec3>{{-2., -2., -2.}, {2., 2., 2.}};
 
   polyscope::state::userCallback = [&]() -> void {
-    callback(vertexPositionHistory,
-             pointGroups,
-             edgeGroups,
-             triangleGroups,
-             tetrahedraGroups,
-             vertexVectorQuantitiesHistory);
+    silk::playHistoryCallback(vertexPositionHistory,
+                              pointGroups,
+                              edgeGroups,
+                              triangleGroups,
+                              tetrahedraGroups,
+                              vertexVectorQuantitiesHistory);
   };
 
   polyscope::show();

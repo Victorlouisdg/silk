@@ -1,5 +1,6 @@
 #include "silk/conversions.hh"
 #include "silk/energies.hh"
+#include "silk/geometry/area.hh"
 #include "silk/visualization.hh"
 
 #include <iostream>
@@ -83,7 +84,7 @@ int main() {
 
   vector<Eigen::Matrix2d> invertedTriangleRestShapes = silk::initializeInvertedTriangleRestShapes(vertexPositions,
                                                                                                   triangles);
-  Eigen::VectorXd triangleRestAreas = silk::calculateAreas(vertexPositions, triangles);
+  Eigen::VectorXd triangleRestAreas = silk::triangleAreas(vertexPositions, triangles);
 
   vector<Eigen::Matrix3d> invertedTetrahedronRestShapes = silk::initializeInvertedTetrahedronRestShapes(
       vertexPositions, tetrahedra);
