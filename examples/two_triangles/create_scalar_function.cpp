@@ -10,14 +10,15 @@ template<typename T> T elementEnergy1(Eigen::Vector3<T> x) {
   return x.prod();
 }
 
-TinyAD::ScalarFunction<3, double, Eigen::Index> createScalarFunction(int vertexCount) {
+template<typename F>
+TinyAD::ScalarFunction<3, double, Eigen::Index> createScalarFunction(int vertexCount, F &&elementEnergy) {
   auto scalarFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
 
   scalarFunction.add_elements<1>(TinyAD::range(vertexCount), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
     using ScalarT = TINYAD_SCALAR_TYPE(element);
     int index = element.handle;
     Eigen::Vector3<ScalarT> x = element.variables(index);
-    ScalarT energy = elementEnergy0(x);
+    ScalarT energy = elementEnergy(x);
     return energy;
   });
 
@@ -33,10 +34,12 @@ int main() {
 
   Eigen::VectorXd x = vertexPositions.reshaped<Eigen::RowMajor>(vertexPositions.rows() * 3, 1);
 
-  auto scalarFunction0 = createScalarFunction(vertexCount /*, elementEnergy0 */);
+  auto scalarFunction0 = createScalarFunction(vertexCount, [](auto &&t) { return elementEnergy0(t); });
+  auto scalarFunction1 = createScalarFunction(vertexCount, [](auto &&t) { return elementEnergy1(t); });
+
   auto e0 = scalarFunction0.eval(x);
   std::cout << e0 << std::endl;
 
-  // I want this function to use elementEnergy1:
-  auto scalarFunction1 = createScalarFunction(vertexCount /*, elementEnergy1 */);
+  auto e1 = scalarFunction1.eval(x);
+  std::cout << e1 << std::endl;
 }
