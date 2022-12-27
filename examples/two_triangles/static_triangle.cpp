@@ -48,28 +48,33 @@ int main() {
   Eigen::VectorXd triangleRestAreas = silk::triangleAreas(vertexPositions, clothTriangles);
   Eigen::VectorXd triangleStretchStiffnesses = Eigen::VectorXd::Ones(clothTriangles.rows());
 
+  // Adding the stretch energy
   TinyAD::ScalarFunction<3, double, Eigen::Index> triangleStretchScalarFunction = silk::createTriangleScalarFunction(
       [](auto &&F) { return silk::baraffWitkinStretchPotential(F); },
       vertexCount,
       clothTriangles,
       triangleInvertedRestShapes);
-
   EnergyFunction triangleStretchFunction = silk::standardizeScalarFunction(triangleStretchScalarFunction);
+  energyFunctions["triangleStretch"] = triangleStretchFunction;
 
-  // EnergyFunction triangleStretchFunction = silk::createTriangleEnergyFunction(
-  //     [](auto &&F) { return silk::baraffWitkinStretchPotential(F); },
-  //     vertexCount,
-  //     clothTriangles,
-  //     triangleInvertedRestShapes);
-  // energyFunctions["triangleStretch"] = triangleStretchFunction;
+  // Adding the shear energy
+  TinyAD::ScalarFunction<3, double, Eigen::Index> triangleShearScalarFunction = silk::createTriangleScalarFunction(
+      [](auto &&F) { return silk::baraffWitkinShearPotential(F); },
+      vertexCount,
+      clothTriangles,
+      triangleInvertedRestShapes);
+  EnergyFunction triangleShearFunction = silk::standardizeScalarFunction(triangleShearScalarFunction);
+  energyFunctions["triangleShear"] = triangleShearFunction;
 
   vertexPositions(0, 0) += 0.1;
   Eigen::VectorXd x = silk::flatten(vertexPositions);
 
-  auto [f, g, H] = triangleStretchFunction(x);
-
   map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexVectorQuantities;
-  vertexVectorQuantities["triangleStretchForces"] = silk::unflatten(-g);
+  for (auto const &[name, energyFunction] : energyFunctions) {
+    auto [f, g, H] = energyFunction(x);
+    cout << name << ": " << f << endl;
+    vertexVectorQuantities[name] = silk::unflatten(-g);
+  }
 
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;
