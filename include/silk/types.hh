@@ -10,8 +10,7 @@ using Triangles = Eigen::ArrayX3i;
 using Tetrahedra = Eigen::ArrayX4i;
 
 template<typename ScalarT> using DeformationGradient = Eigen::Matrix<ScalarT, 3, 2>;
-template<typename ScalarT>
-using ElementPotentialFunction = std::function<ScalarT(const DeformationGradient<ScalarT> &)>;
+template<typename ScalarT> using ElementEnergyFunction = std::function<ScalarT(const DeformationGradient<ScalarT> &)>;
 
-using PotentialDerivatives = std::tuple<double, Eigen::VectorXd, Eigen::SparseMatrix<double>>;
-using PotentialFunction = std::function<PotentialDerivatives(const Eigen::VectorXd &)>;
+using EnergyDerivatives = std::tuple<double, Eigen::VectorXd, Eigen::SparseMatrix<double>>;
+using EnergyFunction = std::function<EnergyDerivatives(const Eigen::VectorXd &)>;

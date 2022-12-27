@@ -6,6 +6,7 @@
 #include "silk/conversions.hh"
 #include "silk/deformation/rest_shapes.hh"
 #include "silk/energies.hh"
+#include "silk/energy/energy_mapping.hh"
 #include "silk/geometry/area.hh"
 #include "silk/mesh_construction.hh"
 #include "silk/simple_meshes.hh"
@@ -17,42 +18,6 @@
 using namespace std;
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
-
-PotentialFunction makePotentialFunction(int vertexCount,
-                                        const Triangles &triangles,
-                                        const vector<Eigen::Matrix2d> &triangleInvertedRestShapes,
-                                        const Eigen::VectorXd &triangleRestAreas,
-                                        const Eigen::VectorXd &stiffnesses) {
-
-  PotentialFunction potentialFunction = [=](const Eigen::VectorXd &x) {
-    auto tinyadFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
-
-    std::cout << "vertexCount:" << vertexCount << std::endl;
-    std::cout << triangles.rows() << std::endl;
-
-    tinyadFunction.add_elements<3>(TinyAD::range(triangles.rows()), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
-      using ScalarT = TINYAD_SCALAR_TYPE(element);
-      int triangleIndex = element.handle;
-      Eigen::Matrix2d invertedRestShape = triangleInvertedRestShapes[triangleIndex];
-      Eigen::Vector3<ScalarT> x0 = element.variables(triangles(triangleIndex, 0));
-      Eigen::Vector3<ScalarT> x1 = element.variables(triangles(triangleIndex, 1));
-      Eigen::Vector3<ScalarT> x2 = element.variables(triangles(triangleIndex, 2));
-      Eigen::Matrix<ScalarT, 3, 2> F = silk::triangleDeformationGradient(x0, x1, x2, invertedRestShape);
-      ScalarT potential = silk::baraffWitkinStretchPotential(F);
-
-      double stiffness = stiffnesses(triangleIndex);
-      double restArea = triangleRestAreas(triangleIndex);
-      double areaFactor = sqrt(restArea);
-
-      ScalarT energy = stiffness * areaFactor * potential;
-      return energy;
-    });
-
-    std::cout << "n_vars :" << tinyadFunction.n_vars << std::endl;
-    return tinyadFunction.eval_with_hessian_proj(x);
-  };
-  return potentialFunction;
-};
 
 int main() {
   VertexPositions vertexPositions;
@@ -76,25 +41,35 @@ int main() {
     triangleInvertedRestShapes.push_back(restShape.inverse());
   }
 
-  map<string, PotentialFunction> potentialFunctions;
+  map<string, EnergyFunction> energyFunctions;
 
   int vertexCount = vertexPositions.rows();
 
   Eigen::VectorXd triangleRestAreas = silk::triangleAreas(vertexPositions, clothTriangles);
   Eigen::VectorXd triangleStretchStiffnesses = Eigen::VectorXd::Ones(clothTriangles.rows());
 
-  potentialFunctions["triangleStretch"] = makePotentialFunction(
-      vertexCount, clothTriangles, triangleInvertedRestShapes, triangleStretchStiffnesses, triangleRestAreas);
+  TinyAD::ScalarFunction<3, double, Eigen::Index> triangleStretchScalarFunction = silk::createTriangleScalarFunction(
+      [](auto &&F) { return silk::baraffWitkinStretchPotential(F); },
+      vertexCount,
+      clothTriangles,
+      triangleInvertedRestShapes);
+
+  EnergyFunction triangleStretchFunction = silk::standardizeScalarFunction(triangleStretchScalarFunction);
+
+  // EnergyFunction triangleStretchFunction = silk::createTriangleEnergyFunction(
+  //     [](auto &&F) { return silk::baraffWitkinStretchPotential(F); },
+  //     vertexCount,
+  //     clothTriangles,
+  //     triangleInvertedRestShapes);
+  // energyFunctions["triangleStretch"] = triangleStretchFunction;
 
   vertexPositions(0, 0) += 0.1;
   Eigen::VectorXd x = silk::flatten(vertexPositions);
-  auto [f, g, H] = potentialFunctions["triangleStretch"](x);
 
-  std::cout << "f: " << f << std::endl;
-  std::cout << "g: " << g << std::endl;
+  auto [f, g, H] = triangleStretchFunction(x);
 
   map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexVectorQuantities;
-  vertexVectorQuantities["stretchForces"] = silk::unflatten(-g);
+  vertexVectorQuantities["triangleStretchForces"] = silk::unflatten(-g);
 
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;
