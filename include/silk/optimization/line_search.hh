@@ -4,6 +4,15 @@
 
 namespace silk {
 
+bool convergenceConditionIPC(const Eigen::VectorXd &searchDirection,
+                             double timestepSize,
+                             double convergenceAccuracy = 1e-5) {
+  // Infinity norm of search direction, see the "Termination" paragraph in the IPC paper.
+  double searchMax = searchDirection.cwiseAbs().maxCoeff();
+  double stoppingMeasure = searchMax / timestepSize;
+  return stoppingMeasure < convergenceAccuracy;
+}
+
 template<typename PassiveT, int d>
 bool armijo_condition(const PassiveT _f_curr,
                       const PassiveT newValue,
