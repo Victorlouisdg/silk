@@ -22,7 +22,12 @@ namespace silk {
 class Energy {
  public:
   virtual double eval(const Eigen::VectorXd &x) const = 0;
-  virtual double operator()(const Eigen::VectorXd &x) const = 0;
+  // virtual double operator()(const Eigen::VectorXd &x) const = 0;
+
+  double operator()(const Eigen::VectorXd &x) const {
+    return this->eval(x);
+  }
+
   virtual tuple<double, Eigen::VectorXd> eval_with_gradient(const Eigen::VectorXd &x) const = 0;
   virtual tuple<double, Eigen::VectorXd, Eigen::SparseMatrix<double>> eval_with_derivatives(
       const Eigen::VectorXd &x) const = 0;
@@ -43,9 +48,9 @@ class TinyADEnergy : public Energy {
     return scalarFunction.eval(x);
   }
 
-  double operator()(const Eigen::VectorXd &x) const override {
-    return this->eval(x);
-  }
+  // double operator()(const Eigen::VectorXd &x) const override {
+  //   return this->eval(x);
+  // }
 
   tuple<double, Eigen::VectorXd> eval_with_gradient(const Eigen::VectorXd &x) const override {
     return scalarFunction.eval_with_gradient(x);
@@ -59,6 +64,71 @@ class TinyADEnergy : public Energy {
   tuple<double, Eigen::VectorXd, Eigen::SparseMatrix<double>> eval_with_hessian_proj(
       const Eigen::VectorXd &x) const override {
     return scalarFunction.eval_with_hessian_proj(x);
+  }
+};
+
+/**
+ * @brief Simple convenience class that takes a map of energies and weights and sums them together.
+ */
+class AdditiveEnergy : public Energy {
+ public:
+  map<string, Energy *> energies;
+  map<string, double> weights;
+
+  AdditiveEnergy(map<string, Energy *> energies, map<string, double> weights) {
+    this->energies = energies;
+    this->weights = weights;
+  }
+
+  double eval(const Eigen::VectorXd &x) const override {
+    double sum = 0.0;
+    for (auto const &[name, energy_ptr] : energies) {
+      double weight = weights.at(name);
+      sum += weight * energy_ptr->eval(x);
+    }
+    return sum;
+  }
+
+  tuple<double, Eigen::VectorXd> eval_with_gradient(const Eigen::VectorXd &x) const override {
+    double sum = 0.0;
+    Eigen::VectorXd summedGradient = Eigen::VectorXd::Zero(x.size());
+    for (auto const &[name, energy_ptr] : energies) {
+      double weight = weights.at(name);
+      auto [energy, energyGradient] = energy_ptr->eval_with_gradient(x);
+      sum += weight * energy;
+      summedGradient += weight * energyGradient;
+    }
+    return {sum, summedGradient};
+  }
+
+  tuple<double, Eigen::VectorXd, Eigen::SparseMatrix<double>> eval_with_derivatives(
+      const Eigen::VectorXd &x) const override {
+    double sum = 0.0;
+    Eigen::VectorXd summedGradient = Eigen::VectorXd::Zero(x.size());
+    Eigen::SparseMatrix<double> summedHessian = Eigen::SparseMatrix<double>(x.size(), x.size());
+    for (auto const &[name, energy_ptr] : energies) {
+      double weight = weights.at(name);
+      auto [energy, energyGradient, energyHessian] = energy_ptr->eval_with_derivatives(x);
+      sum += weight * energy;
+      summedGradient += weight * energyGradient;
+      summedHessian += weight * energyHessian;
+    }
+    return {sum, summedGradient, summedHessian};
+  }
+
+  tuple<double, Eigen::VectorXd, Eigen::SparseMatrix<double>> eval_with_hessian_proj(
+      const Eigen::VectorXd &x) const override {
+    double sum = 0.0;
+    Eigen::VectorXd summedGradient = Eigen::VectorXd::Zero(x.size());
+    Eigen::SparseMatrix<double> summedHessian = Eigen::SparseMatrix<double>(x.size(), x.size());
+    for (auto const &[name, energy_ptr] : energies) {
+      double weight = weights.at(name);
+      auto [energy, energyGradient, energyHessian] = energy_ptr->eval_with_hessian_proj(x);
+      sum += weight * energy;
+      summedGradient += weight * energyGradient;
+      summedHessian += weight * energyHessian;
+    }
+    return {sum, summedGradient, summedHessian};
   }
 };
 

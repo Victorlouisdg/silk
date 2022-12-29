@@ -74,6 +74,43 @@ TinyAD::ScalarFunction<3, double, Eigen::Index> createTriangleScalarFunction(
   return scalarFunction;
 }
 
+TinyAD::ScalarFunction<3, double, Eigen::Index> createKineticPotentialFunction(
+    const Eigen::VectorXd &positionsAtStartOfTimestep,
+    const Eigen::VectorXd &velocitiesAtStartOfTimestep,
+    const Eigen::VectorXd &vertexMasses,
+    double timestepSize) {
+
+  double h = timestepSize;
+  Eigen::VectorXd x0 = positionsAtStartOfTimestep;
+  Eigen::VectorXd v0 = velocitiesAtStartOfTimestep;
+  int vertexCount = x0.size() / 3;
+  // Eigen::VectorXd a0 = gravityAccelerationsFlat;
+
+  // Create the kinetic potential
+  Eigen::VectorXd predictivePositionsFlat = x0 + h * v0;  // + h * h * a0;
+  Eigen::MatrixXd predictivePositions = silk::unflatten(predictivePositionsFlat);
+
+  // TODO: find fix for the formatting
+  auto scalarFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
+  scalarFunction.add_elements<1>(TinyAD::range(vertexCount),
+                                 [&, predictivePositions](auto &element) -> TINYAD_SCALAR_TYPE(element) {
+                                   using ScalarT = TINYAD_SCALAR_TYPE(element);
+                                   int vertexIndex = element.handle;
+
+                                   Eigen::Vector3<ScalarT> position = element.variables(vertexIndex);
+                                   Eigen::Vector3d predictivePosition = predictivePositions.row(vertexIndex);
+                                   Eigen::Vector3<ScalarT> difference = position - predictivePosition;
+
+                                   double vertexMass = vertexMasses(vertexIndex);
+
+                                   ScalarT potential = 0.5 * vertexMass * difference.transpose() * difference;
+
+                                   return potential;
+                                 });
+
+  return scalarFunction;
+}
+
 template<typename FunctionTemplate>
 EnergyFunction createTriangleEnergyFunction(FunctionTemplate &&triangleEnergy,
                                             int vertexCount,

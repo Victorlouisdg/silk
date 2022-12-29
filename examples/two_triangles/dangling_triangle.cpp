@@ -93,24 +93,8 @@ int main() {
     Eigen::VectorXd v0 = velocities;
     // Eigen::VectorXd a0 = gravityAccelerationsFlat;
 
-    // Create the kinetic potential
-    Eigen::VectorXd predictivePositionsFlat = x0 + h * v0;  // + h * h * a0;
-    Eigen::MatrixXd predictivePositions = silk::unflatten(predictivePositionsFlat);
-    auto kineticPotentialFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
-    kineticPotentialFunction.add_elements<1>(
-        TinyAD::range(vertexCount), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
-          using ScalarT = TINYAD_SCALAR_TYPE(element);
-          int vertexIndex = element.handle;
-          Eigen::Vector3<ScalarT> position = element.variables(vertexIndex);
-          Eigen::Vector3d predictivePosition = predictivePositions.row(vertexIndex);
-          Eigen::Vector3<ScalarT> difference = position - predictivePosition;
-
-          double vertexMass = vertexMasses(vertexIndex);
-
-          ScalarT potential = 0.5 * vertexMass * difference.transpose() * difference;
-
-          return potential;
-        });
+    TinyAD::ScalarFunction<3, double, Eigen::Index> kineticPotentialFunction = silk::createKineticPotentialFunction(
+        x0, v0, vertexMasses, h);
     silk::TinyADEnergy kineticPotential(kineticPotentialFunction);
     energies["kineticPotential"] = &kineticPotential;
 
@@ -121,6 +105,13 @@ int main() {
       vertexVectorQuantities[name] = silk::unflatten(-g);
     }
 
+    map<string, double> energyWeights = {
+        {"kineticPotential", 1.0},
+        {"triangleStretch", h * h},
+        {"triangleShear", h * h},
+    };
+    silk::AdditiveEnergy incrementalPotential(energies, energyWeights);
+
     auto x = x0;
     int maxNewtonIterations = 50;
     double convergenceAccuracy = 1e-5;
@@ -129,25 +120,10 @@ int main() {
     for (int newtonIteration = 0; newtonIteration < maxNewtonIterations; ++newtonIteration) {
       std::cout << "Newton iteration: " << newtonIteration << std::endl;
 
-      auto [stretchValue, stretchGradient, stretchHessian] = stretchEnergy.eval_with_hessian_proj(x);
-      auto [shearValue, shearGradient, shearHessian] = shearEnergy.eval_with_hessian_proj(x);
-      auto [kineticValue, kineticGradient, kineticHessian] = kineticPotential.eval_with_hessian_proj(x);
-
-      auto elasticValue = stretchValue + shearValue;
-      auto elasticGradient = stretchGradient + shearGradient;
-      auto elasticHessian = stretchHessian + shearHessian;
-
-      auto incrementalPotential = kineticValue + h * h * elasticValue;
-      auto incrementalPotentialGradient = kineticGradient + h * h * elasticGradient;
-      auto incrementalPotentialHessian = kineticHessian + h * h * elasticHessian;
-
-      double f = incrementalPotential;
-      Eigen::VectorXd g = incrementalPotentialGradient;
-      auto H_proj = incrementalPotentialHessian;
+      auto [f, g, H_proj] = incrementalPotential.eval_with_hessian_proj(x);
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
-        return kineticPotential(x) + h * h * (stretchEnergy(x) + shearEnergy(x));
+        return incrementalPotential(x);
       };
-
       // Projected Netwon's method (line search with projected Hessian)
       Eigen::VectorXd d = conjugateGradientSolver.compute(H_proj).solve(-g);
 
