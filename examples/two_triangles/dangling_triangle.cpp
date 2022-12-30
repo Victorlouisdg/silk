@@ -52,7 +52,7 @@ int main() {
 
   // Adding the stretch energy
   TinyAD::ScalarFunction<3, double, Eigen::Index> triangleStretchScalarFunction = silk::createTriangleScalarFunction(
-      [](auto &&F) { return 100.0 * silk::baraffWitkinStretchPotential(F); },
+      [](auto &&F) { return 20.0 * silk::baraffWitkinStretchPotential(F); },
       vertexCount,
       clothTriangles,
       triangleInvertedRestShapes);
@@ -62,7 +62,7 @@ int main() {
 
   // Adding the shear energy
   TinyAD::ScalarFunction<3, double, Eigen::Index> triangleShearScalarFunction = silk::createTriangleScalarFunction(
-      [](auto &&F) { return 10.0 * silk::baraffWitkinShearPotential(F); },
+      [](auto &&F) { return 2.0 * silk::baraffWitkinShearPotential(F); },
       vertexCount,
       clothTriangles,
       triangleInvertedRestShapes);
@@ -85,13 +85,25 @@ int main() {
   double vertexMass = 1.0 / vertexCount;
   Eigen::VectorXd vertexMasses = vertexMass * Eigen::VectorXd::Ones(vertexCount);
 
+  // Setting up the energy for the scripted vertices
+  Points staticVertices(1);
+  staticVertices << 2;
+  map<int, Eigen::Vector3d> scriptedPositions;
+  for (int index : staticVertices) {
+    scriptedPositions[index] = vertexPositions.row(index);
+  }
+
+  TinyAD::ScalarFunction<3, double, Eigen::Index> staticSpringEnergy = silk::createVertexEnergyFunction(
+      vertexCount, staticVertices, scriptedPositions, vertexMasses);
+  silk::TinyADEnergy staticSpring(staticSpringEnergy);
+  energies["staticSpring"] = &staticSpring;
+
   for (int timestep = 0; timestep < timesteps; timestep++) {
     map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexVectorQuantities;
 
     double h = timestepSize;
     Eigen::VectorXd x0 = positions;
     Eigen::VectorXd v0 = velocities;
-    // Eigen::VectorXd a0 = gravityAccelerationsFlat;
 
     TinyAD::ScalarFunction<3, double, Eigen::Index> kineticPotentialFunction = silk::createKineticPotentialFunction(
         x0, v0, vertexMasses, h);
@@ -105,11 +117,9 @@ int main() {
       vertexVectorQuantities[name] = silk::unflatten(-g);
     }
 
+    // TODO: think about how to ensure/enforce all energies have a weight.
     map<string, double> energyWeights = {
-        {"kineticPotential", 1.0},
-        {"triangleStretch", h * h},
-        {"triangleShear", h * h},
-    };
+        {"kineticPotential", 1.0}, {"triangleStretch", h * h}, {"triangleShear", h * h}, {"staticSpring", h * h}};
     silk::AdditiveEnergy incrementalPotential(energies, energyWeights);
 
     auto x = x0;
