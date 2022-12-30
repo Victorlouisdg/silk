@@ -14,6 +14,9 @@ include(polyscope)
 include(geometry_central)
 include(tinyad)
 include(googletest)
+include(fabsim_recipe)
+
+# add_library(fabsim)
 # include(tinyad_examples)
 
 set(LIBIGL_RESTRICTED_TRIANGLE ON)
@@ -49,6 +52,7 @@ target_link_libraries(silk PUBLIC
     polyscope
     geometry-central
     TinyAD
+    fabsim
     # TinyAD-Examples
 )
 

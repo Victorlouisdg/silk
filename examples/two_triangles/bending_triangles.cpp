@@ -17,9 +17,9 @@
 
 #include <igl/triangle/triangulate.h>
 
+#include <fsim/ElasticShell.h>
+
 using namespace std;
-using namespace geometrycentral;
-using namespace geometrycentral::surface;
 
 int main() {
   VertexPositions vertexPositions;
@@ -41,11 +41,29 @@ int main() {
   clothTriangles.conservativeResize(clothTriangles.rows() + 1, 3);
   clothTriangles.row(clothTriangles.rows() - 1) = Eigen::Vector3i(clothVertices.rows() - 1, 1, 0);
 
-  clothVertices.bottomRows(2).col(2).array() += 0.5;
-
   clothTriangles = silk::appendTriangles(vertexPositions, triangleGroups, clothVertices, clothTriangles);
 
+  fsim::DiscreteShell<fsim::TanAngleFormulation> shell(vertexPositions, clothTriangles, 1.0, 1.0, 0.5);
+
+  // Bend the triangles upwards
+  vertexPositions.bottomRows(2).col(2).array() += 0.5;
+
+  const Eigen::VectorXd x = silk::flatten(vertexPositions);
+  const Eigen::Ref<const Eigen::VectorXd> xRef(x);
+  double energy = shell.energy(x);
+  // Eigen::VectorXd gradient =
+
+  Eigen::VectorXd y = Eigen::VectorXd::Zero(x.size());
+  Eigen::Ref<Eigen::VectorXd> yRef(y);
+
+  shell.gradient(xRef, yRef);
+
+  std::cout << y << std::endl;
+
+  std::cout << "Initial energy: " << energy << std::endl;
+
   map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexVectorQuantities;
+  vertexVectorQuantities["forces"] = -silk::unflatten(y);
 
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;

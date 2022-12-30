@@ -8,8 +8,6 @@
 #include <iostream>
 
 using namespace std;
-using namespace geometrycentral;
-using namespace geometrycentral::surface;
 
 namespace silk {
 

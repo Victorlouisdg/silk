@@ -14,40 +14,6 @@ using namespace std;
 
 namespace silk {
 
-template<typename ScalarFunction> EnergyFunction standardizeScalarFunction(const ScalarFunction &scalarFunction) {
-  EnergyFunction energyFunction = [&](const Eigen::VectorXd &x) { return scalarFunction.eval_with_hessian_proj(x); };
-  return energyFunction;
-}
-
-/**
- * @brief Create function "maps" a function that calculates the energy of a vertex over an entire mesh. The result is a
- * function that takes in the flattened position of all vertices and returns the total energy of the mesh, its gradient
- * and Hessian.
- *
- * We use TinyAD to do the mapping and the automatic differentiation. This results in a TinyAD ScalarFunction that we
- * then simplify to just a regular function.
- *
- * @tparam F
- * @param vertexCount the amount of vertices in the entire mesh.
- * @param elementEnergy the function template that calculates the energy of the vertex.
- * @return The ScalarFunction
- */
-template<typename FunctionTemplate>
-EnergyFunction createVertexEnergyFunction(FunctionTemplate &&vertexEnergy, int vertexCount) {
-
-  auto scalarFunction = TinyAD::scalar_function<3>(TinyAD::range(vertexCount));
-  scalarFunction.add_elements<1>(TinyAD::range(vertexCount), [&](auto &element) -> TINYAD_SCALAR_TYPE(element) {
-    using ScalarT = TINYAD_SCALAR_TYPE(element);
-    int index = element.handle;
-    Eigen::Vector3<ScalarT> x = element.variables(index);
-    ScalarT energy = elementEnergy(x);
-    return energy;
-  });
-
-  EnergyFunction energyFunction = standardizeScalarFunction(scalarFunction);
-  return energyFunction;
-}
-
 template<typename FunctionTemplate>
 TinyAD::ScalarFunction<3, double, Eigen::Index> createTriangleScalarFunction(
     FunctionTemplate &&triangleEnergy,
@@ -145,18 +111,6 @@ TinyAD::ScalarFunction<3, double, Eigen::Index> createVertexEnergyFunction(
       });
 
   return scalarFunction;
-}
-
-template<typename FunctionTemplate>
-EnergyFunction createTriangleEnergyFunction(FunctionTemplate &&triangleEnergy,
-                                            int vertexCount,
-                                            const Triangles &triangles,
-                                            const vector<Eigen::Matrix2d> &triangleInvertedRestShapes) {
-
-  auto scalarFunction = createTriangleScalarFunction(
-      triangleEnergy, vertexCount, triangles, triangleInvertedRestShapes);
-  EnergyFunction energyFunction = standardizeScalarFunction(scalarFunction);
-  return energyFunction;
 }
 
 }  // namespace silk
