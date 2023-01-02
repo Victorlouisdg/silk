@@ -43,7 +43,7 @@ tuple<VertexPositions, Triangles> makeTriangulatedSquare() {
 
   Eigen::MatrixXd H;
 
-  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.1q", newVertices2D, newTriangles);
+  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.01q", newVertices2D, newTriangles);
 
   Eigen::MatrixXd newVertexCoordinates = Eigen::MatrixXd::Zero(newVertices2D.rows(), 3);
   newVertexCoordinates.leftCols(2) = newVertices2D;
@@ -82,7 +82,7 @@ int main() {
   // Add cloth
   auto [clothVertices, clothTriangles] = makeTriangulatedSquare();
   clothVertices.array() *= 0.5;
-  clothVertices.array() += 0.05;
+  clothVertices.array() += 0.01;
   clothTriangles = silk::appendTriangles(vertexPositions, triangleGroups, clothVertices, clothTriangles);
 
   vector<Eigen::Matrix2d> triangleRestShapes = silk::makeRestShapesFromCurrentPositions(vertexPositions,
@@ -102,7 +102,7 @@ int main() {
 
   // Adding the stretch energy
   TinyAD::ScalarFunction<3, double, Eigen::Index> triangleStretchScalarFunction = silk::createTriangleScalarFunction(
-      [](auto &&F) { return 20.0 * silk::baraffWitkinStretchPotential(F); },
+      [](auto &&F) { return 2.0 * silk::baraffWitkinStretchPotential(F); },
       vertexCount,
       clothTriangles,
       triangleInvertedRestShapes);
@@ -112,7 +112,7 @@ int main() {
 
   // Adding the shear energy
   TinyAD::ScalarFunction<3, double, Eigen::Index> triangleShearScalarFunction = silk::createTriangleScalarFunction(
-      [](auto &&F) { return 2.0 * silk::baraffWitkinShearPotential(F); },
+      [](auto &&F) { return 0.2 * silk::baraffWitkinShearPotential(F); },
       vertexCount,
       clothTriangles,
       triangleInvertedRestShapes);
@@ -158,7 +158,14 @@ int main() {
   silk::TinyADEnergy staticSpring(staticSpringEnergy);
   energies["staticSpring"] = &staticSpring;
 
+  Points actuatedVertices(2);
+  actuatedVertices << 5, 6;
+
+  double endTime = timesteps * timestepSize;
+
   for (int timestep = 0; timestep < timesteps; timestep++) {
+    std::cout << "============== Timestep " << timestep << "=================" << std::endl;
+
     map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexVectorQuantities;
 
     double h = timestepSize;
@@ -169,6 +176,22 @@ int main() {
         x0, v0, vertexMasses, h);
     silk::TinyADEnergy kineticPotential(kineticPotentialFunction);
     energies["kineticPotential"] = &kineticPotential;
+
+    map<int, Eigen::Vector3d> actuatatedPositions;
+    double time = timestep * timestepSize;
+    double theta = 0.95 * M_PI * time / endTime;
+    double radius = 0.5;
+    double height = radius * sin(theta);
+    double xCoord = radius * cos(theta);
+    double y5 = vertexPositions(5, 1);
+    double y6 = vertexPositions(6, 1);
+    actuatatedPositions[5] = Eigen::RowVector3d(xCoord, y5, height);
+    actuatatedPositions[6] = Eigen::RowVector3d(xCoord, y6, height);
+
+    TinyAD::ScalarFunction<3, double, Eigen::Index> actuationSpringEnergy = silk::createVertexEnergyFunction(
+        vertexCount, actuatedVertices, actuatatedPositions, vertexMasses);
+    silk::TinyADEnergy actuationSpring(actuationSpringEnergy);
+    energies["actuationSpring"] = &actuationSpring;
 
     silk::IPCBarrierEnergy barrierEnergy(collisionMesh, constraintSet, dhat);
     energies["contactBarrier"] = &barrierEnergy;
@@ -186,6 +209,7 @@ int main() {
                                          {"triangleStretch", h * h},
                                          {"triangleShear", h * h},
                                          {"staticSpring", h * h},
+                                         {"actuationSpring", h * h},
                                          {"contactBarrier", kappa}};
     silk::AdditiveEnergy incrementalPotential(energies, energyWeights);
 
