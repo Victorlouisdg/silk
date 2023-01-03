@@ -365,7 +365,7 @@ int main() {
 
       std::cout << "Starting line search of timestep " << timestep << " and iteration " << newtonIteration
                 << std::endl;
-      x = silk::lineSearch(x, d, f, g, func, s_max, 0.5);
+      x = silk::backtrackingLineSearch(x, d, f, g, func, s_max, 0.5);
     }
 
     positions = x;

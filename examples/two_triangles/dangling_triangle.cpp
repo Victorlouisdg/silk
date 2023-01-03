@@ -141,7 +141,7 @@ int main() {
       if (silk::convergenceConditionIPC(d, h)) {
         break;
       }
-      x = silk::lineSearch(x, d, f, g, func);
+      x = silk::backtrackingLineSearch(x, d, f, g, func);
     }
 
     positions = x;

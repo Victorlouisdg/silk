@@ -24,14 +24,14 @@ bool armijoCondition(const T initialValue,
 }
 
 template<typename T, int d, typename EvalFunctionT>
-Eigen::Vector<T, d> lineSearch(
+Eigen::Vector<T, d> backtrackingLineSearch(
     const Eigen::Vector<T, d> &initialVariables,
     const Eigen::Vector<T, d> &searchDirection,
     const T initialValue,
     const Eigen::Vector<T, d> &gradient,
     const EvalFunctionT &objectiveFunction,  // Callable of type T(const Eigen::Vector<T, d>&)
     const T maxStepSize = 1.0,               // Initial step size
-    const T stepSizeShrinkFactor = 0.8,
+    const T contractionFactor = 0.8,
     const int maxStepSizesToTry = 64,
     const T armijoConstant = 1e-4) {
   // Check input
@@ -55,12 +55,12 @@ Eigen::Vector<T, d> lineSearch(
       return variables;
     }
 
-    if (tryStepSizeOne && stepSize > 1.0 && stepSize * stepSizeShrinkFactor < 1.0) {
+    if (tryStepSizeOne && stepSize > 1.0 && stepSize * contractionFactor < 1.0) {
       stepSize = 1.0;
       continue;
     }
 
-    stepSize *= stepSizeShrinkFactor;
+    stepSize *= contractionFactor;
   }
 
   TINYAD_WARNING("Line search couldn't find improvement. Gradient max norm is " << gradient.cwiseAbs().maxCoeff());

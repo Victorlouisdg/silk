@@ -200,24 +200,23 @@ int main() {
     energies["actuationSpring"] = &actuationSpring;
 
     silk::IPCBarrierEnergy barrierEnergy(collisionMesh, constraintSet, dhat);
-    energies["contactBarrier"] = &barrierEnergy;
+    // energies["contactBarrier"] = &barrierEnergy;
 
-    for (auto const &[name, energy_ptr] : energies) {
-      silk::Energy &energy = *energy_ptr;
-      auto [f, g, H] = energy.eval_with_hessian_proj(x0);
-      cout << name << ": " << f << endl;
-      vertexVectorQuantities[name] = silk::unflatten(-g);
-    }
-
-    // TODO: think about how to ensure/enforce all energies have a weight.
-    double kappa = 1.0;
-    map<string, double> energyWeights = {{"kineticPotential", 1.0},
-                                         {"triangleStretch", h * h},
-                                         {"triangleShear", h * h},
-                                         {"staticSpring", h * h},
-                                         {"actuationSpring", h * h},
-                                         {"contactBarrier", kappa}};
+    map<string, double> energyWeights = {
+        {"kineticPotential", 1.0},
+        {"triangleStretch", h * h},
+        {"triangleShear", h * h},
+        {"staticSpring", h * h},
+        {"actuationSpring", h * h},
+    };
     silk::AdditiveEnergy incrementalPotential(energies, energyWeights);
+
+    // for (auto const &[name, energy_ptr] : energies) {
+    //   silk::Energy &energy = *energy_ptr;
+    //   auto [f, g, H] = energy.eval_with_hessian_proj(x0);
+    //   cout << name << ": " << f << endl;
+    //   vertexVectorQuantities[name] = silk::unflatten(-g);
+    // }
 
     auto x = x0;
     int maxNewtonIterations = 50;
@@ -227,9 +226,23 @@ int main() {
     for (int newtonIteration = 0; newtonIteration < maxNewtonIterations; ++newtonIteration) {
       std::cout << "Newton iteration: " << newtonIteration << std::endl;
 
-      auto [f, g, H_proj] = incrementalPotential.eval_with_hessian_proj(x);
+      auto [barrierValue, barrierGradient] = barrierEnergy.eval_with_gradient(x);
+      auto [Evalue, Egradient] = incrementalPotential.eval_with_gradient(x);
+
+      double kappa = -barrierGradient.dot(Egradient) / barrierGradient.dot(barrierGradient);
+
+      std::cout << "kappa: " << kappa << std::endl;
+
+      map<string, silk::Energy *> energies2;
+      energies2["barrier"] = &barrierEnergy;
+      energies2["incrementalPotential"] = &incrementalPotential;
+      map<string, double> energyWeights2 = {{"barrier", 1.0}, {"incrementalPotential", 1.0}};
+
+      silk::AdditiveEnergy barrierAugmentedIP(energies2, energyWeights2);
+
+      auto [f, g, H_proj] = barrierAugmentedIP.eval_with_hessian_proj(x);
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
-        return incrementalPotential(x);
+        return barrierAugmentedIP(x);
       };
       // Projected Netwon's method (line search with projected Hessian)
       Eigen::VectorXd d = conjugateGradientSolver.compute(H_proj).solve(-g);
