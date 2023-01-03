@@ -99,7 +99,6 @@ TinyAD::ScalarFunction<3, double, Eigen::Index> createVertexEnergyFunction(
         using ScalarT = TINYAD_SCALAR_TYPE(element);
         // TODO: possibly prevent the line below by using a std::vector instead of TinyAD::range
         int vertexIndex = scriptedVerticesIndices(element.handle);
-        std::cout << vertexIndex << std::endl;
         Eigen::Vector3<ScalarT> position = element.variables(vertexIndex);
         Eigen::Vector3d scriptedPosition = scriptedPositions.at(vertexIndex);
         Eigen::Vector3<ScalarT> difference = position - scriptedPosition;

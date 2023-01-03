@@ -18,8 +18,7 @@
 #include <igl/triangle/triangulate.h>
 
 using namespace std;
-using namespace geometrycentral;
-using namespace geometrycentral::surface;
+using namespace std::chrono;
 
 int main() {
   VertexPositions vertexPositions;
@@ -98,6 +97,8 @@ int main() {
   silk::TinyADEnergy staticSpring(staticSpringEnergy);
   energies["staticSpring"] = &staticSpring;
 
+  auto start = high_resolution_clock::now();
+
   for (int timestep = 0; timestep < timesteps; timestep++) {
     map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexVectorQuantities;
 
@@ -148,6 +149,10 @@ int main() {
     vertexPositionHistory.push_back(silk::unflatten(positions));
     vertexVectorQuantitiesHistory.push_back(vertexVectorQuantities);
   }
+
+  auto stop = high_resolution_clock::now();
+  auto duration = duration_cast<seconds>(stop - start);
+  cout << "Time taken: " << duration.count() << " seconds " << endl;
 
   // Add empty map for the last timestep.
   vertexVectorQuantitiesHistory.push_back(map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>());

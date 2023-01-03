@@ -43,6 +43,7 @@ class TinyADEnergy : public Energy {
   TinyADEnergy(TinyAD::ScalarFunction<3, double, Eigen::Index> &scalarFunction) {
     // I don't fully understand of the consequences of this move. I should document this once I do.
     this->scalarFunction = std::move(scalarFunction);
+    // this->scalarFunction.settings.n_threads = 1;
   };
 
   double eval(const Eigen::VectorXd &x) override {

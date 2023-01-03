@@ -21,8 +21,7 @@
 #include <ipc/ipc.hpp>
 
 using namespace std;
-using namespace geometrycentral;
-using namespace geometrycentral::surface;
+using namespace std::chrono;
 
 tuple<VertexPositions, Triangles> makeTriangulatedSquare() {
   Eigen::RowVector3d v0(-1.0, -1.0, 0.0);
@@ -43,7 +42,7 @@ tuple<VertexPositions, Triangles> makeTriangulatedSquare() {
 
   Eigen::MatrixXd H;
 
-  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.01q", newVertices2D, newTriangles);
+  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.001q", newVertices2D, newTriangles);
 
   Eigen::MatrixXd newVertexCoordinates = Eigen::MatrixXd::Zero(newVertices2D.rows(), 3);
   newVertexCoordinates.leftCols(2) = newVertices2D;
@@ -85,6 +84,8 @@ int main() {
   clothVertices.array() += 0.01;
   clothTriangles = silk::appendTriangles(vertexPositions, triangleGroups, clothVertices, clothTriangles);
 
+  std::cout << "cloth triangles: " << clothTriangles.rows() << std::endl;
+
   vector<Eigen::Matrix2d> triangleRestShapes = silk::makeRestShapesFromCurrentPositions(vertexPositions,
                                                                                         clothTriangles);
 
@@ -119,7 +120,9 @@ int main() {
   silk::TinyADEnergy shearEnergy(triangleShearScalarFunction);
   energies["triangleShear"] = &shearEnergy;
 
+  int speedup = 50;
   int timesteps = 200;
+  timesteps /= speedup;
   double timestepSize = 0.01;
 
   vertexPositions(0, 0) += 0.1;  // Small deformation
@@ -163,6 +166,8 @@ int main() {
 
   double endTime = timesteps * timestepSize;
 
+  auto start = high_resolution_clock::now();
+
   for (int timestep = 0; timestep < timesteps; timestep++) {
     std::cout << "============== Timestep " << timestep << "=================" << std::endl;
 
@@ -180,6 +185,7 @@ int main() {
     map<int, Eigen::Vector3d> actuatatedPositions;
     double time = timestep * timestepSize;
     double theta = 0.95 * M_PI * time / endTime;
+    theta /= (double)speedup;
     double radius = 0.5;
     double height = radius * sin(theta);
     double xCoord = radius * cos(theta);
@@ -228,6 +234,8 @@ int main() {
       // Projected Netwon's method (line search with projected Hessian)
       Eigen::VectorXd d = conjugateGradientSolver.compute(H_proj).solve(-g);
 
+      std::cout << "Stopping measure: " << d.cwiseAbs().maxCoeff() / h << std::endl;
+
       if (silk::convergenceConditionIPC(d, h)) {
         break;
       }
@@ -249,23 +257,27 @@ int main() {
     vertexVectorQuantitiesHistory.push_back(vertexVectorQuantities);
   }
 
+  auto stop = high_resolution_clock::now();
+  auto duration = duration_cast<seconds>(stop - start);
+  cout << "Time taken: " << duration.count() << " seconds " << endl;
+
   // Add empty map for the last timestep.
   vertexVectorQuantitiesHistory.push_back(map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>());
 
-  polyscope::init();
-  polyscope::view::upDir = polyscope::UpDir::ZUp;
-  polyscope::options::automaticallyComputeSceneExtents = false;
-  polyscope::state::lengthScale = 5.;
-  // polyscope::state::boundingBox = std::tuple<glm::vec3, glm::vec3>{{-2., -2., -2.}, {2., 2., 2.}};
+  // polyscope::init();
+  // polyscope::view::upDir = polyscope::UpDir::ZUp;
+  // polyscope::options::automaticallyComputeSceneExtents = false;
+  // polyscope::state::lengthScale = 5.;
+  // // polyscope::state::boundingBox = std::tuple<glm::vec3, glm::vec3>{{-2., -2., -2.}, {2., 2., 2.}};
 
-  polyscope::state::userCallback = [&]() -> void {
-    silk::playHistoryCallback(vertexPositionHistory,
-                              pointGroups,
-                              edgeGroups,
-                              triangleGroups,
-                              tetrahedraGroups,
-                              vertexVectorQuantitiesHistory);
-  };
+  // polyscope::state::userCallback = [&]() -> void {
+  //   silk::playHistoryCallback(vertexPositionHistory,
+  //                             pointGroups,
+  //                             edgeGroups,
+  //                             triangleGroups,
+  //                             tetrahedraGroups,
+  //                             vertexVectorQuantitiesHistory);
+  // };
 
-  polyscope::show();
+  // polyscope::show();
 }
