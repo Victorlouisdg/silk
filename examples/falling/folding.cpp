@@ -18,6 +18,7 @@
 #include <igl/edges.h>
 #include <igl/triangle/triangulate.h>
 
+#include <ipc/friction/friction.hpp>
 #include <ipc/ipc.hpp>
 
 #include <Eigen/CholmodSupport>
@@ -44,7 +45,7 @@ tuple<VertexPositions, Triangles> makeTriangulatedSquare() {
 
   Eigen::MatrixXd H;
 
-  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.001q", newVertices2D, newTriangles);
+  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.01q", newVertices2D, newTriangles);
 
   Eigen::MatrixXd newVertexCoordinates = Eigen::MatrixXd::Zero(newVertices2D.rows(), 3);
   newVertexCoordinates.leftCols(2) = newVertices2D;
@@ -123,9 +124,9 @@ int main() {
   energies["triangleShear"] = &shearEnergy;
 
   int speedup = 1;
-  int timesteps = 200;
+  int timesteps = 100;
   timesteps /= speedup;
-  double timestepSize = 0.01;
+  double timestepSize = 0.02;
 
   // vertexPositions(0, 0) += 0.1;  // Small deformation
 
@@ -156,7 +157,7 @@ int main() {
   igl::edges(collisionTriangles, collisionEdges);
   ipc::CollisionMesh collisionMesh(vertexPositions, collisionEdges, collisionTriangles);
   ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::HASH_GRID;
-  ipc::Constraints constraintSet;
+  ipc::Constraints contactConstraintSet;
   double dhat = 0.01;  // square of maximum distance at which repulsion works
 
   TinyAD::ScalarFunction<3, double, Eigen::Index> staticSpringEnergy = silk::createVertexEnergyFunction(
@@ -170,6 +171,8 @@ int main() {
   double endTime = timesteps * timestepSize;
 
   auto start = high_resolution_clock::now();
+
+  Eigen::MatrixXd laggedPositions = silk::unflatten(positions);
 
   for (int timestep = 0; timestep < timesteps; timestep++) {
     std::cout << "============== Timestep " << timestep << "=================" << std::endl;
@@ -202,7 +205,7 @@ int main() {
     silk::TinyADEnergy actuationSpring(actuationSpringEnergy);
     energies["actuationSpring"] = &actuationSpring;
 
-    silk::IPCBarrierEnergy barrierEnergy(collisionMesh, constraintSet, dhat);
+    silk::IPCBarrierEnergy barrierEnergy(collisionMesh, contactConstraintSet, dhat);
     energies["contactBarrier"] = &barrierEnergy;
 
     // for (auto const &[name, energy_ptr] : energies) {
@@ -214,13 +217,6 @@ int main() {
 
     // TODO: think about how to ensure/enforce all energies have a weight.
     double kappa = 1.0;
-    map<string, double> energyWeights = {{"kineticPotential", 1.0},
-                                         {"triangleStretch", h * h},
-                                         {"triangleShear", h * h},
-                                         {"staticSpring", h * h},
-                                         {"actuationSpring", h * h},
-                                         {"contactBarrier", kappa}};
-    silk::AdditiveEnergy incrementalPotential(energies, energyWeights);
 
     auto x = x0;
     int maxNewtonIterations = 100;
@@ -234,6 +230,18 @@ int main() {
     std::cout << "Newton Iteration Start " << std::endl;
     for (int newtonIteration = 0; newtonIteration < maxNewtonIterations; ++newtonIteration) {
       // std::cout << "Newton iteration: " << newtonIteration << std::endl;
+
+      silk::IPCFrictionEnergy frictionEnergy(collisionMesh, contactConstraintSet, dhat, laggedPositions, h);
+      energies["friction"] = &frictionEnergy;
+
+      map<string, double> energyWeights = {{"kineticPotential", 1.0},
+                                           {"triangleStretch", h * h},
+                                           {"triangleShear", h * h},
+                                           {"staticSpring", h * h},
+                                           {"actuationSpring", h * h},
+                                           {"contactBarrier", kappa},
+                                           {"friction", h * h}};
+      silk::AdditiveEnergy incrementalPotential(energies, energyWeights);
 
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
         return incrementalPotential(x);
@@ -252,13 +260,12 @@ int main() {
       // auto [f, g] = incrementalPotential.eval_with_gradient(x);
       // Eigen::VectorXd d = -g;  // Do gradient descent with line search
 
-      Eigen::Index maxRow;
-      double stoppingMeasure = d.cwiseAbs().maxCoeff(&maxRow) / h;
-      std::cout << newtonIteration << ": " << stoppingMeasure << " row = " << maxRow << std::endl;
+      double stoppingMeasure = d.cwiseAbs().maxCoeff() / h;
+      std::cout << newtonIteration << ": " << stoppingMeasure << std::endl;
 
       // std::cout << "Stopping measure: " << d.cwiseAbs().maxCoeff() / h << std::endl;
 
-      if (silk::convergenceConditionIPC(d, h, 0.0001)) {
+      if (silk::convergenceConditionIPC(d, h, 0.001)) {
         break;
       }
 
@@ -266,12 +273,18 @@ int main() {
       Eigen::MatrixXd positions_ = silk::unflatten(x);
       // TODO: only update constraint set once (already done in IPCBarrierEnergy)
       Eigen::MatrixXd collisionV = collisionMesh.vertices(positions_);
-      constraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
+      contactConstraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
+
       double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction, method, dhat);
       double maxStepSize = min(c, 1.0);
 
+      // Eigen::MatrixXd laggedV = collisionMesh.vertices(laggedPositions);
+
+      laggedPositions = positions_;
+
+      // std::cout << "Friction: " << friction << std::endl;
+
       x = silk::backtrackingLineSearch(x, d, f, g, func, maxStepSize);
-      // std::cout << newtonIteration << ": " << stoppingMeasure << " row = " << maxRow << std::endl;
     }
 
     positions = x;

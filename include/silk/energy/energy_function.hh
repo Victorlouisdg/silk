@@ -9,6 +9,8 @@
 #include <TinyAD/ScalarFunction.hh>
 
 #include "silk/types.hh"
+
+#include <ipc/friction/friction.hpp>
 #include <ipc/ipc.hpp>
 
 using namespace std;
@@ -124,6 +126,93 @@ class IPCBarrierEnergy : public Energy {
     Eigen::SparseMatrix<double> barrierHessianProj = ipc::compute_barrier_potential_hessian(
         collisionMesh, collisionV, constraintSet, dhat);
     return {barrierPotential, barrierGradient, barrierHessianProj};
+  }
+};
+
+class IPCFrictionEnergy : public Energy {
+  ipc::CollisionMesh collisionMesh;
+  ipc::Constraints contactConstraintSet;
+  ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::HASH_GRID;
+  double dhat;
+  double barrier_stiffness = 1.0;
+  double mu = 1.0;
+  Eigen::MatrixXd laggedPositions;
+  double h;
+
+ public:
+  IPCFrictionEnergy(ipc::CollisionMesh &collisionMesh,
+                    ipc::Constraints &contactConstraintSet,
+                    double dhat,
+                    Eigen::MatrixXd laggedPositions,
+                    double h) {
+    this->collisionMesh = collisionMesh;
+    this->contactConstraintSet = contactConstraintSet;
+    this->dhat = dhat;
+    this->laggedPositions = laggedPositions;
+    this->h = 0.01 * h;
+  }
+
+  double eval(const Eigen::VectorXd &x) override {
+    Eigen::MatrixXd collisionV = collisionMesh.vertices(silk::unflatten(x));
+    this->contactConstraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
+
+    ipc::FrictionConstraints frictionConstraintSet;
+    ipc::construct_friction_constraint_set(
+        collisionMesh, collisionV, contactConstraintSet, dhat, barrier_stiffness, mu, frictionConstraintSet);
+    double frictionPotential = ipc::compute_friction_potential(
+        collisionMesh, collisionV, laggedPositions, frictionConstraintSet, h);
+    return frictionPotential;
+  }
+
+  tuple<double, Eigen::VectorXd> eval_with_gradient(const Eigen::VectorXd &x) override {
+    /* Warning: currently requires eval to be called first. */
+    Eigen::MatrixXd collisionV = collisionMesh.vertices(silk::unflatten(x));
+    this->contactConstraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
+
+    ipc::FrictionConstraints frictionConstraintSet;
+    ipc::construct_friction_constraint_set(
+        collisionMesh, collisionV, contactConstraintSet, dhat, barrier_stiffness, mu, frictionConstraintSet);
+    double frictionPotential = ipc::compute_friction_potential(
+        collisionMesh, collisionV, laggedPositions, frictionConstraintSet, h);
+    Eigen::VectorXd frictionGradient = ipc::compute_friction_potential_gradient(
+        collisionMesh, collisionV, laggedPositions, frictionConstraintSet, h);
+    return {frictionPotential, frictionGradient};
+  }
+
+  tuple<double, Eigen::VectorXd, Eigen::SparseMatrix<double>> eval_with_derivatives(
+      const Eigen::VectorXd &x) override {
+    /* Warning: currently requires eval to be called first. */
+    Eigen::MatrixXd collisionV = collisionMesh.vertices(silk::unflatten(x));
+    this->contactConstraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
+
+    ipc::FrictionConstraints frictionConstraintSet;
+    ipc::construct_friction_constraint_set(
+        collisionMesh, collisionV, contactConstraintSet, dhat, barrier_stiffness, mu, frictionConstraintSet);
+    double frictionPotential = ipc::compute_friction_potential(
+        collisionMesh, collisionV, laggedPositions, frictionConstraintSet, h);
+    Eigen::VectorXd frictionGradient = ipc::compute_friction_potential_gradient(
+        collisionMesh, collisionV, laggedPositions, frictionConstraintSet, h);
+    Eigen::SparseMatrix<double> frictionHessian = ipc::compute_friction_potential_hessian(
+        collisionMesh, collisionV, laggedPositions, frictionConstraintSet, h, false);
+    return {frictionPotential, frictionGradient, frictionHessian};
+  }
+
+  tuple<double, Eigen::VectorXd, Eigen::SparseMatrix<double>> eval_with_hessian_proj(
+      const Eigen::VectorXd &x) override {
+    /* Warning: currently requires eval to be called first. */
+    Eigen::MatrixXd collisionV = collisionMesh.vertices(silk::unflatten(x));
+    this->contactConstraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
+
+    ipc::FrictionConstraints frictionConstraintSet;
+    ipc::construct_friction_constraint_set(
+        collisionMesh, collisionV, contactConstraintSet, dhat, barrier_stiffness, mu, frictionConstraintSet);
+    double frictionPotential = ipc::compute_friction_potential(
+        collisionMesh, collisionV, laggedPositions, frictionConstraintSet, h);
+    Eigen::VectorXd frictionGradient = ipc::compute_friction_potential_gradient(
+        collisionMesh, collisionV, laggedPositions, frictionConstraintSet, h);
+    Eigen::SparseMatrix<double> frictionHessianProj = ipc::compute_friction_potential_hessian(
+        collisionMesh, collisionV, laggedPositions, frictionConstraintSet, h);
+    return {frictionPotential, frictionGradient, frictionHessianProj};
   }
 };
 
