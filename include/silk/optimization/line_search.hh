@@ -20,6 +20,8 @@ bool armijoCondition(const T initialValue,
                      const Eigen::Vector<T, d> &searchDirection,
                      const Eigen::Vector<T, d> &gradient,
                      const T armijoConstant) {
+  // std::cout << "armijoCondition: " << newValue << " <= " << initialValue << " + " << armijoConstant << " * "
+  //           << stepSize << " * " << searchDirection.dot(gradient) << std::endl;
   return newValue <= initialValue + armijoConstant * stepSize * searchDirection.dot(gradient);  // Equation 3.4
 }
 
@@ -51,7 +53,7 @@ Eigen::Vector<T, d> backtrackingLineSearch(
     variables = initialVariables + stepSize * searchDirection;  // Equation 3.1 in Numerical Optimization
     const T newValue = objectiveFunction(variables);
     if (armijoCondition(initialValue, newValue, stepSize, searchDirection, gradient, armijoConstant)) {
-      std::cout << "Line search needed " << i + 1 << " iterations." << std::endl;
+      // std::cout << "Line search needed " << i + 1 << " iterations." << std::endl;
       return variables;
     }
 

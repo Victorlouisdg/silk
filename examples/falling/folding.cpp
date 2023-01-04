@@ -20,6 +20,8 @@
 
 #include <ipc/ipc.hpp>
 
+#include <Eigen/CholmodSupport>
+
 using namespace std;
 using namespace std::chrono;
 
@@ -81,7 +83,7 @@ int main() {
   // Add cloth
   auto [clothVertices, clothTriangles] = makeTriangulatedSquare();
   clothVertices.array() *= 0.5;
-  clothVertices.array() += 0.01;
+  clothVertices.col(2).array() += 0.01;
   clothTriangles = silk::appendTriangles(vertexPositions, triangleGroups, clothVertices, clothTriangles);
 
   std::cout << "cloth triangles: " << clothTriangles.rows() << std::endl;
@@ -120,12 +122,12 @@ int main() {
   silk::TinyADEnergy shearEnergy(triangleShearScalarFunction);
   energies["triangleShear"] = &shearEnergy;
 
-  int speedup = 50;
+  int speedup = 1;
   int timesteps = 200;
   timesteps /= speedup;
   double timestepSize = 0.01;
 
-  vertexPositions(0, 0) += 0.1;  // Small deformation
+  // vertexPositions(0, 0) += 0.1;  // Small deformation
 
   vector<Eigen::Matrix<double, Eigen::Dynamic, 3>> vertexPositionHistory;
   vertexPositionHistory.push_back(vertexPositions);
@@ -135,8 +137,9 @@ int main() {
 
   vector<map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>> vertexVectorQuantitiesHistory;
 
-  double vertexMass = 1.0 / vertexCount;
-  Eigen::VectorXd vertexMasses = vertexMass * Eigen::VectorXd::Ones(vertexCount);
+  double clothVertexMass = 1.0 / clothVertices.rows();
+  Eigen::VectorXd vertexMasses = clothVertexMass * Eigen::VectorXd::Ones(vertexCount);
+  vertexMasses.topRows(4).array() = 1.0;
 
   // Setting up the energy for the scripted vertices
   Points staticVertices(4);
@@ -187,7 +190,7 @@ int main() {
     double theta = 0.95 * M_PI * time / endTime;
     theta /= (double)speedup;
     double radius = 0.5;
-    double height = radius * sin(theta);
+    double height = radius * sin(theta) + 0.01;
     double xCoord = radius * cos(theta);
     double y5 = vertexPositions(5, 1);
     double y6 = vertexPositions(6, 1);
@@ -202,12 +205,12 @@ int main() {
     silk::IPCBarrierEnergy barrierEnergy(collisionMesh, constraintSet, dhat);
     energies["contactBarrier"] = &barrierEnergy;
 
-    for (auto const &[name, energy_ptr] : energies) {
-      silk::Energy &energy = *energy_ptr;
-      auto [f, g, H] = energy.eval_with_hessian_proj(x0);
-      cout << name << ": " << f << endl;
-      vertexVectorQuantities[name] = silk::unflatten(-g);
-    }
+    // for (auto const &[name, energy_ptr] : energies) {
+    //   silk::Energy &energy = *energy_ptr;
+    //   auto [f, g, H] = energy.eval_with_hessian_proj(x0);
+    //   cout << name << ": " << f << endl;
+    //   vertexVectorQuantities[name] = silk::unflatten(-g);
+    // }
 
     // TODO: think about how to ensure/enforce all energies have a weight.
     double kappa = 1.0;
@@ -220,23 +223,42 @@ int main() {
     silk::AdditiveEnergy incrementalPotential(energies, energyWeights);
 
     auto x = x0;
-    int maxNewtonIterations = 50;
+    int maxNewtonIterations = 100;
     double convergenceAccuracy = 1e-5;
 
-    Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> conjugateGradientSolver;
-    for (int newtonIteration = 0; newtonIteration < maxNewtonIterations; ++newtonIteration) {
-      std::cout << "Newton iteration: " << newtonIteration << std::endl;
+    // Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> linearSolver;
+    Eigen::CholmodSimplicialLDLT<Eigen::SparseMatrix<double>> linearSolver;
 
-      auto [f, g, H_proj] = incrementalPotential.eval_with_hessian_proj(x);
+    Eigen::VectorXd previousSearchDirection;
+
+    std::cout << "Newton Iteration Start " << std::endl;
+    for (int newtonIteration = 0; newtonIteration < maxNewtonIterations; ++newtonIteration) {
+      // std::cout << "Newton iteration: " << newtonIteration << std::endl;
+
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
         return incrementalPotential(x);
       };
-      // Projected Netwon's method (line search with projected Hessian)
-      Eigen::VectorXd d = conjugateGradientSolver.compute(H_proj).solve(-g);
 
-      std::cout << "Stopping measure: " << d.cwiseAbs().maxCoeff() / h << std::endl;
+      auto [f, g, H_proj] = incrementalPotential.eval_with_hessian_proj(x);
+      Eigen::VectorXd d = linearSolver.compute(H_proj).solve(-g);
 
-      if (silk::convergenceConditionIPC(d, h)) {
+      // cosine of the angle between the search direction and the previous search direction
+      // if (newtonIteration > 0) {
+      //   double cosine = d.dot(previousSearchDirection) / (d.norm() * previousSearchDirection.norm());
+      //   std::cout << "Cosine: " << cosine << std::endl;
+      // }
+      // previousSearchDirection = d;
+
+      // auto [f, g] = incrementalPotential.eval_with_gradient(x);
+      // Eigen::VectorXd d = -g;  // Do gradient descent with line search
+
+      Eigen::Index maxRow;
+      double stoppingMeasure = d.cwiseAbs().maxCoeff(&maxRow) / h;
+      std::cout << newtonIteration << ": " << stoppingMeasure << " row = " << maxRow << std::endl;
+
+      // std::cout << "Stopping measure: " << d.cwiseAbs().maxCoeff() / h << std::endl;
+
+      if (silk::convergenceConditionIPC(d, h, 0.0001)) {
         break;
       }
 
@@ -248,9 +270,8 @@ int main() {
       double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction, method, dhat);
       double maxStepSize = min(c, 1.0);
 
-      std::cout << "maxStepSize: " << maxStepSize << std::endl;
-
       x = silk::backtrackingLineSearch(x, d, f, g, func, maxStepSize);
+      // std::cout << newtonIteration << ": " << stoppingMeasure << " row = " << maxRow << std::endl;
     }
 
     positions = x;
@@ -266,20 +287,20 @@ int main() {
   // Add empty map for the last timestep.
   vertexVectorQuantitiesHistory.push_back(map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>());
 
-  // polyscope::init();
-  // polyscope::view::upDir = polyscope::UpDir::ZUp;
-  // polyscope::options::automaticallyComputeSceneExtents = false;
-  // polyscope::state::lengthScale = 5.;
-  // // polyscope::state::boundingBox = std::tuple<glm::vec3, glm::vec3>{{-2., -2., -2.}, {2., 2., 2.}};
+  polyscope::init();
+  polyscope::view::upDir = polyscope::UpDir::ZUp;
+  polyscope::options::automaticallyComputeSceneExtents = false;
+  polyscope::state::lengthScale = 5.;
+  // polyscope::state::boundingBox = std::tuple<glm::vec3, glm::vec3>{{-2., -2., -2.}, {2., 2., 2.}};
 
-  // polyscope::state::userCallback = [&]() -> void {
-  //   silk::playHistoryCallback(vertexPositionHistory,
-  //                             pointGroups,
-  //                             edgeGroups,
-  //                             triangleGroups,
-  //                             tetrahedraGroups,
-  //                             vertexVectorQuantitiesHistory);
-  // };
+  polyscope::state::userCallback = [&]() -> void {
+    silk::playHistoryCallback(vertexPositionHistory,
+                              pointGroups,
+                              edgeGroups,
+                              triangleGroups,
+                              tetrahedraGroups,
+                              vertexVectorQuantitiesHistory);
+  };
 
-  // polyscope::show();
+  polyscope::show();
 }
