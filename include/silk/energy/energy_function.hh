@@ -134,7 +134,7 @@ class IPCFrictionEnergy : public Energy {
   ipc::Constraints contactConstraintSet;
   ipc::BroadPhaseMethod method = ipc::BroadPhaseMethod::HASH_GRID;
   double dhat;
-  double barrier_stiffness = 1.0;
+  double barrier_stiffness = 1.0;  // = kappa, the adaptively set barrier stiffness
   double mu = 1.0;
   Eigen::MatrixXd laggedPositions;
   double h;
@@ -149,7 +149,7 @@ class IPCFrictionEnergy : public Energy {
     this->contactConstraintSet = contactConstraintSet;
     this->dhat = dhat;
     this->laggedPositions = laggedPositions;
-    this->h = 0.01 * h;
+    this->h = 0.001 * h;  // epsilon_v * dt
   }
 
   double eval(const Eigen::VectorXd &x) override {

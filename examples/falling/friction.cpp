@@ -72,8 +72,8 @@ int main() {
   // Add ground
   auto [groundVertices, groundTriangles] = makeTwoTriangleSquare();
 
-  // 6 degress rotation
-  Eigen::Matrix3d rotationMatrix = Eigen::AngleAxisd(M_PI / 30.0, Eigen::Vector3d::UnitX()).matrix();
+  // 1 degree rotation
+  Eigen::Matrix3d rotationMatrix = Eigen::AngleAxisd(M_PI / 60.0, Eigen::Vector3d::UnitX()).matrix();
   groundVertices = (rotationMatrix * groundVertices.transpose()).transpose();
 
   groundTriangles = silk::appendTriangles(vertexPositions, triangleGroups, groundVertices, groundTriangles);
@@ -219,7 +219,7 @@ int main() {
                                            {"triangleShear", h * h},
                                            {"staticSpring", h * h},
                                            {"contactBarrier", kappa},
-                                           {"friction", h * h}};
+                                           {"friction", h * h}};  // h * h doesn't prevent sliding, 1.0 goes crazy
       silk::AdditiveEnergy incrementalPotential(energies, energyWeights);
 
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
