@@ -45,29 +45,12 @@ tuple<VertexPositions, Triangles> makeTriangulatedSquare() {
 
   Eigen::MatrixXd H;
 
-  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.01q", newVertices2D, newTriangles);
+  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.001q", newVertices2D, newTriangles);
 
   Eigen::MatrixXd newVertexCoordinates = Eigen::MatrixXd::Zero(newVertices2D.rows(), 3);
   newVertexCoordinates.leftCols(2) = newVertices2D;
 
   return std::make_tuple(newVertexCoordinates, newTriangles);
-}
-
-tuple<VertexPositions, Triangles> makeTwoTriangleSquare() {
-  Eigen::RowVector3d v0(-1.0, -1.0, 0.0);
-  Eigen::RowVector3d v1(1.0, -1.0, 0.0);
-  Eigen::RowVector3d v2(1.0, 1.0, 0.0);
-  Eigen::RowVector3d v3(-1.0, 1.0, 0.0);
-
-  Eigen::Matrix<double, 4, 3> vertexCoordinates(4, 3);
-  vertexCoordinates << v0, v1, v2, v3;
-
-  Eigen::RowVector3i triangle0{0, 1, 2};
-  Eigen::RowVector3i triangle1{0, 2, 3};
-  Eigen::ArrayX3i triangles(2, 3);
-  triangles << triangle0, triangle1;
-
-  return std::make_tuple(vertexCoordinates, triangles);
 }
 
 int main() {
@@ -78,13 +61,23 @@ int main() {
   vector<Tetrahedra> tetrahedraGroups;
 
   // Add ground
-  auto [groundVertices, groundTriangles] = makeTwoTriangleSquare();
-  groundTriangles = silk::appendTriangles(vertexPositions, triangleGroups, groundVertices, groundTriangles);
+  auto [boxVertices, boxTriangles] = silk::makeBox();
+  boxVertices.array() *= 0.25;
+  boxTriangles = silk::appendTriangles(vertexPositions, triangleGroups, boxVertices, boxTriangles);
+
 
   // Add cloth
   auto [clothVertices, clothTriangles] = makeTriangulatedSquare();
   clothVertices.array() *= 0.5;
-  clothVertices.col(2).array() += 0.01;
+  // Rotate the cloth vertices 90 degress around the x-axis
+  Eigen::Matrix3d rotation;
+  rotation << 1, 0, 0, 0, 0, -1, 0, 1, 0;
+  clothVertices = (rotation * clothVertices.transpose()).transpose();
+  // Rotate the cloth vertices 45 degress around the y-axis
+  Eigen::Vector3d unitY = Eigen::Vector3d::UnitY();
+  Eigen::Matrix3d rotationMatrix = Eigen::AngleAxisd(M_PI / 4.0, unitY).matrix();
+  clothVertices = (rotationMatrix * clothVertices.transpose()).transpose();
+  clothVertices.col(2).array() += 1.25;
   clothTriangles = silk::appendTriangles(vertexPositions, triangleGroups, clothVertices, clothTriangles);
 
   std::cout << "cloth triangles: " << clothTriangles.rows() << std::endl;
@@ -143,16 +136,16 @@ int main() {
   vertexMasses.topRows(4).array() = 1.0;
 
   // Setting up the energy for the scripted vertices
-  Points staticVertices(4);
-  staticVertices << 0, 1, 2, 3;
+  Points staticVertices(8);
+  staticVertices << 0, 1, 2, 3, 4, 5, 6, 7;
   map<int, Eigen::Vector3d> scriptedPositions;
   for (int index : staticVertices) {
     scriptedPositions[index] = vertexPositions.row(index);
   }
 
   // Setting up the collision mesh
-  Eigen::MatrixXi collisionTriangles(groundTriangles.rows() + clothTriangles.rows(), 3);
-  collisionTriangles << groundTriangles, clothTriangles;
+  Eigen::MatrixXi collisionTriangles(boxTriangles.rows() + clothTriangles.rows(), 3);
+  collisionTriangles << boxTriangles, clothTriangles;
   Eigen::MatrixXi collisionEdges;
   igl::edges(collisionTriangles, collisionEdges);
   ipc::CollisionMesh collisionMesh(vertexPositions, collisionEdges, collisionTriangles);
@@ -164,9 +157,6 @@ int main() {
       vertexCount, staticVertices, scriptedPositions, vertexMasses);
   silk::TinyADEnergy staticSpring(staticSpringEnergy);
   energies["staticSpring"] = &staticSpring;
-
-  Points actuatedVertices(2);
-  actuatedVertices << 5, 6;
 
   double endTime = timesteps * timestepSize;
 
@@ -188,22 +178,6 @@ int main() {
     silk::TinyADEnergy kineticPotential(kineticPotentialFunction);
     energies["kineticPotential"] = &kineticPotential;
 
-    map<int, Eigen::Vector3d> actuatatedPositions;
-    double time = timestep * timestepSize;
-    double theta = 0.95 * M_PI * time / endTime;
-    theta /= (double)speedup;
-    double radius = 0.5;
-    double height = radius * sin(theta) + 0.01;
-    double xCoord = radius * cos(theta);
-    double y5 = vertexPositions(5, 1);
-    double y6 = vertexPositions(6, 1);
-    actuatatedPositions[5] = Eigen::RowVector3d(xCoord, y5, height);
-    actuatatedPositions[6] = Eigen::RowVector3d(xCoord, y6, height);
-
-    TinyAD::ScalarFunction<3, double, Eigen::Index> actuationSpringEnergy = silk::createVertexEnergyFunction(
-        vertexCount, actuatedVertices, actuatatedPositions, vertexMasses);
-    silk::TinyADEnergy actuationSpring(actuationSpringEnergy);
-    energies["actuationSpring"] = &actuationSpring;
 
     silk::IPCBarrierEnergy barrierEnergy(collisionMesh, contactConstraintSet, dhat);
     energies["contactBarrier"] = &barrierEnergy;
@@ -231,16 +205,11 @@ int main() {
     for (int newtonIteration = 0; newtonIteration < maxNewtonIterations; ++newtonIteration) {
       // std::cout << "Newton iteration: " << newtonIteration << std::endl;
 
-      silk::IPCFrictionEnergy frictionEnergy(collisionMesh, contactConstraintSet, dhat, laggedPositions, h);
-      energies["friction"] = &frictionEnergy;
-
       map<string, double> energyWeights = {{"kineticPotential", 1.0},
                                            {"triangleStretch", h * h},
                                            {"triangleShear", h * h},
                                            {"staticSpring", h * h},
-                                           {"actuationSpring", h * h},
-                                           {"contactBarrier", kappa},
-                                           {"friction", h * h}};
+                                           {"contactBarrier", kappa}};
       silk::AdditiveEnergy incrementalPotential(energies, energyWeights);
 
       std::function<double(const Eigen::VectorXd &)> func = [&](const Eigen::VectorXd &x) {
@@ -249,16 +218,6 @@ int main() {
 
       auto [f, g, H_proj] = incrementalPotential.eval_with_hessian_proj(x);
       Eigen::VectorXd d = linearSolver.compute(H_proj).solve(-g);
-
-      // cosine of the angle between the search direction and the previous search direction
-      // if (newtonIteration > 0) {
-      //   double cosine = d.dot(previousSearchDirection) / (d.norm() * previousSearchDirection.norm());
-      //   std::cout << "Cosine: " << cosine << std::endl;
-      // }
-      // previousSearchDirection = d;
-
-      // auto [f, g] = incrementalPotential.eval_with_gradient(x);
-      // Eigen::VectorXd d = -g;  // Do gradient descent with line search
 
       double stoppingMeasure = d.cwiseAbs().maxCoeff() / h;
       std::cout << newtonIteration << ": " << stoppingMeasure << std::endl;
@@ -275,7 +234,7 @@ int main() {
       Eigen::MatrixXd collisionV = collisionMesh.vertices(positions_);
       contactConstraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
 
-      double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction, method, 0.0); //, dhat);
+      double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction, method, 0.0, dhat); //, dhat);
       double maxStepSize = min(c, 1.0);
 
       // Eigen::MatrixXd laggedV = collisionMesh.vertices(laggedPositions);

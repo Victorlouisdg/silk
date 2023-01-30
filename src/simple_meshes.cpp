@@ -2,6 +2,8 @@
 #include <igl/triangle/triangulate.h>
 #include <iostream>
 #include <silk/simple_meshes.hh>
+#include "silk/types.hh"
+
 
 namespace silk {
 
@@ -56,5 +58,50 @@ tuple<Eigen::MatrixXd, Eigen::MatrixXi> makeStackedTetrahedra() {
 
   return std::make_tuple(V, T);
 };
+
+tuple<VertexPositions, Triangles> makeBox() {
+  Eigen::RowVector3d v0(-1.0, -1.0, 0.0);
+  Eigen::RowVector3d v1(1.0, -1.0, 0.0);
+  Eigen::RowVector3d v2(1.0, 1.0, 0.0);
+  Eigen::RowVector3d v3(-1.0, 1.0, 0.0);
+
+  Eigen::RowVector3d boxHeight(0.0, 0.0, 2.0);
+  Eigen::RowVector3d v4 = v0 + boxHeight;
+  Eigen::RowVector3d v5 = v1 + boxHeight;
+  Eigen::RowVector3d v6 = v2 + boxHeight;
+  Eigen::RowVector3d v7 = v3 + boxHeight;
+
+  Eigen::Matrix<double, 8, 3> vertexCoordinates(8, 3);
+  vertexCoordinates << v0, v1, v2, v3, v4, v5, v6, v7;
+
+  // Perspective: look from (-1,-1, -1) to the origin.
+  // Vertices are ordered such that normals point inwards.
+
+  // Base
+  Eigen::RowVector3i triangle0{0, 1, 2};
+  Eigen::RowVector3i triangle1{0, 2, 3};
+
+  // Front
+  Eigen::RowVector3i triangle2{0, 1, 5};
+  Eigen::RowVector3i triangle3{0, 5, 4};
+
+  // Right
+  Eigen::RowVector3i triangle4{1, 6, 2};
+  Eigen::RowVector3i triangle5{1, 5, 6};
+
+  // Back
+  Eigen::RowVector3i triangle6{3, 2, 6};
+  Eigen::RowVector3i triangle7{3, 6, 7};
+
+  // Left
+  Eigen::RowVector3i triangle8{0, 3, 7};
+  Eigen::RowVector3i triangle9{0, 7, 4};
+
+  Triangles triangles(10, 3);
+  triangles << triangle0, triangle1, triangle2, triangle3, triangle4, triangle5, triangle6, triangle7, triangle8, triangle9;
+
+  return std::make_tuple(vertexCoordinates, triangles);
+}
+
 
 }  // namespace silk
