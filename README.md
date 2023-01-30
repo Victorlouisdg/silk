@@ -18,7 +18,7 @@ This library relies on several great tools:
 * [TinyAD](https://github.com/patr-schm/TinyAD): for automatic differentiation of energies on meshes. Derivatives of energies are crucial to many cloth simulators. By not having to derive and implement these by hand, the code is simpler and implementing new ideas is faster.
 * [PolyScope](https://polyscope.run/): for flexible visualization of the simulated meshes, including data per mesh element (e.g. per vertex, edges etc.)
 * [Eigen](https://eigen.tuxfamily.org/): for (sparse) matrices and linear algebra.
-[libigl](https://libigl.github.io/)for geometry-related stuff, e.g. triangulation or getting the edges from a list of faces. 
+* [libigl](https://libigl.github.io/)for geometry-related stuff, e.g. triangulation or getting the edges from a list of faces. 
 * [IPC Toolkit](https://ipc-sim.github.io/ipc-toolkit/): for intersection-free collisions
 
 Besides the above tools, I am also thankful for these resources:

@@ -17,6 +17,7 @@
 
 #include <igl/edges.h>
 #include <igl/triangle/triangulate.h>
+#include <igl/writeOBJ.h>
 
 #include <ipc/friction/friction.hpp>
 #include <ipc/ipc.hpp>
@@ -64,7 +65,6 @@ int main() {
   auto [boxVertices, boxTriangles] = silk::makeBox();
   boxVertices.array() *= 0.25;
   boxTriangles = silk::appendTriangles(vertexPositions, triangleGroups, boxVertices, boxTriangles);
-
 
   // Add cloth
   auto [clothVertices, clothTriangles] = makeTriangulatedSquare();
@@ -178,7 +178,6 @@ int main() {
     silk::TinyADEnergy kineticPotential(kineticPotentialFunction);
     energies["kineticPotential"] = &kineticPotential;
 
-
     silk::IPCBarrierEnergy barrierEnergy(collisionMesh, contactConstraintSet, dhat);
     energies["contactBarrier"] = &barrierEnergy;
 
@@ -234,7 +233,8 @@ int main() {
       Eigen::MatrixXd collisionV = collisionMesh.vertices(positions_);
       contactConstraintSet.build(collisionMesh, collisionV, dhat, /*dmin=*/0, method);
 
-      double c = ipc::compute_collision_free_stepsize(collisionMesh, positions_, positions_ + direction, method, 0.0, dhat); //, dhat);
+      double c = ipc::compute_collision_free_stepsize(
+          collisionMesh, positions_, positions_ + direction, method, 0.0, dhat);  //, dhat);
       double maxStepSize = min(c, 1.0);
 
       // Eigen::MatrixXd laggedV = collisionMesh.vertices(laggedPositions);
@@ -258,6 +258,10 @@ int main() {
 
   // Add empty map for the last timestep.
   vertexVectorQuantitiesHistory.push_back(map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>());
+
+  VertexPositions V = vertexPositionHistory[timesteps];
+  Eigen::MatrixXi F = clothTriangles;  // Explicit cast from Array to Matrix
+  igl::writeOBJ("cloth_art.obj", V, F);
 
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;

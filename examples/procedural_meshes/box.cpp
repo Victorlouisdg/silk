@@ -22,6 +22,8 @@
 #include <ipc/ipc.hpp>
 
 #include <Eigen/CholmodSupport>
+#include <igl/writeOBJ.h>
+
 
 using namespace std;
 using namespace std::chrono;
@@ -38,6 +40,9 @@ int main() {
   // groundVertices.array() *= 0.3;
   groundTriangles = silk::appendTriangles(vertexPositions, triangleGroups, groundVertices, groundTriangles);
 
+  VertexPositions V = groundVertices;
+  Eigen::MatrixXi F = groundTriangles; // Explicit cast from Array to Matrix
+  igl::writeOBJ("box.obj",V,F);
 
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;
