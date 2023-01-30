@@ -46,3 +46,13 @@ Then you can run any of the built executables, e.g.
 * Procedural and parametric meshes of clothes, we can take inspiration from [Sensitive Couture](https://www.cs.columbia.edu/cg/SC/) and the [Berkeley Garment Library](http://graphics.berkeley.edu/resources/GarmentLibrary/).
 * Seams, as presented in the [True Seams](https://gabrielcirio.gitlab.io/projects/trueseams/trueseams.html) paper.
 * Python bindings
+
+## Profiling
+
+### vtune
+Installation: [link](https://www.intel.com/content/www/us/en/develop/documentation/vtune-install-guide/top/linux/package-managers.html).
+Then to run:
+```
+source /opt/intel/oneapi/vtune/latest/env/vars.sh
+vtune-gui
+```
