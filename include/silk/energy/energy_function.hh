@@ -10,8 +10,9 @@
 
 #include "silk/types.hh"
 
-#include <ipc/friction/friction.hpp>
 #include <ipc/ipc.hpp>
+#include <ipc/friction/friction.hpp>
+#include <ipc/friction/friction_constraint.hpp>
 
 using namespace std;
 

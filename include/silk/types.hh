@@ -1,9 +1,12 @@
 #pragma once
 
 #include <Eigen/Core>
+#include <Eigen/Sparse>
 
 /* Some simple aliases to keep function signatures readable. */
 using VertexPositions = Eigen::Matrix<double, Eigen::Dynamic, 3>;
+
+/* The mesh elements/primitves we use in silk. */
 using Points = Eigen::ArrayXi;
 using Edges = Eigen::ArrayX2i;
 using Triangles = Eigen::ArrayX3i;

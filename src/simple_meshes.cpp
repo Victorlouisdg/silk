@@ -1,11 +1,11 @@
 #include "polyscope/standardize_data_array.h"
+#include "silk/types.hh"
 #include <igl/triangle/triangulate.h>
 #include <iostream>
 #include <silk/simple_meshes.hh>
-#include "silk/types.hh"
-
 
 namespace silk {
+using namespace Eigen;
 
 Eigen::Vector3d make3D(Eigen::Vector2d v2) {
   Eigen::Vector3d v3;
@@ -98,10 +98,37 @@ tuple<VertexPositions, Triangles> makeBox() {
   Eigen::RowVector3i triangle9{0, 7, 4};
 
   Triangles triangles(10, 3);
-  triangles << triangle0, triangle1, triangle2, triangle3, triangle4, triangle5, triangle6, triangle7, triangle8, triangle9;
+  triangles << triangle0, triangle1, triangle2, triangle3, triangle4, triangle5, triangle6, triangle7, triangle8,
+      triangle9;
 
   return std::make_tuple(vertexCoordinates, triangles);
 }
 
+tuple<VertexPositions, Triangles> makeTriangulatedSquare() {
+  RowVector3d v0(-1.0, -1.0, 0.0);
+  RowVector3d v1(1.0, -1.0, 0.0);
+  RowVector3d v2(1.0, 1.0, 0.0);
+  RowVector3d v3(-1.0, 1.0, 0.0);
+
+  Matrix<double, 4, 3> vertexCoordinates(4, 3);
+  vertexCoordinates << v0, v1, v2, v3;
+
+  MatrixXi edges(4, 2);  // Mesh edges
+  edges << 0, 1, 1, 2, 2, 3, 3, 0;
+
+  MatrixXd vertexCoordinates2D = vertexCoordinates.leftCols(2);
+
+  MatrixXd newVertices2D;
+  MatrixXi newTriangles;
+
+  MatrixXd H;
+
+  igl::triangle::triangulate(vertexCoordinates2D, edges, H, "a0.001q", newVertices2D, newTriangles);
+
+  MatrixXd newVertexCoordinates = MatrixXd::Zero(newVertices2D.rows(), 3);
+  newVertexCoordinates.leftCols(2) = newVertices2D;
+
+  return std::make_tuple(newVertexCoordinates, newTriangles);
+}
 
 }  // namespace silk

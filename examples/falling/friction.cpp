@@ -133,6 +133,7 @@ int main() {
   Eigen::VectorXd positions = silk::flatten(vertexPositions);
   Eigen::VectorXd velocities = Eigen::VectorXd::Zero(positions.size());
 
+
   vector<map<string, Eigen::Matrix<double, Eigen::Dynamic, 3>>> vertexVectorQuantitiesHistory;
 
   double clothVertexMass = 1.0 / clothVertices.rows();

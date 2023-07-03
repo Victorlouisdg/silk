@@ -1,4 +1,4 @@
-set(IPC_TOOLKIT_GIT_TAG main)
+set(IPC_TOOLKIT_GIT_TAG v1.0.0)
 include(FetchContent)
 FetchContent_Declare(
     ipc_toolkit

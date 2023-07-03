@@ -16,6 +16,7 @@ include(tinyad)
 include(googletest)
 include(fabsim_recipe)
 
+
 # add_library(fabsim)
 # include(tinyad_examples)
 
@@ -53,6 +54,7 @@ target_link_libraries(silk PUBLIC
     geometry-central
     TinyAD
     fabsim
+    cholmod
     # TinyAD-Examples
 )
 
