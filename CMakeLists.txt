@@ -17,9 +17,6 @@ include(googletest)
 include(fabsim_recipe)
 
 
-# add_library(fabsim)
-# include(tinyad_examples)
-
 set(LIBIGL_RESTRICTED_TRIANGLE ON)
 include(libigl)
 igl_include_optional(predicates)
@@ -30,13 +27,10 @@ igl_include_optional(restricted triangle)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 message("Building silk in " ${CMAKE_BUILD_TYPE} " mode")
-# add_subdirectory("libs/TinyAD-Examples")
 
 file(GLOB_RECURSE SILK_HEADERS include/*.hh)
-file(GLOB_RECURSE SILK_SOURCES src/*.cpp)
-add_library(silk ${SILK_SOURCES} ${SILK_HEADERS})
 message(${SILK_HEADERS})
-message(${SILK_SOURCES})
+add_library(silk ${SILK_HEADERS})
 
 target_compile_features(silk PUBLIC cxx_std_17)
 
@@ -55,7 +49,6 @@ target_link_libraries(silk PUBLIC
     TinyAD
     fabsim
     cholmod
-    # TinyAD-Examples
 )
 
 function(add_example example_name main)
@@ -92,30 +85,3 @@ foreach(main ${SILK_TESTS})
     get_filename_component(dir_name ${dir} NAME)
     add_test(${test_name} ${main})
 endforeach()
-
-# enable_testing()
-
-# add_executable(
-#   deformation_gradient_test
-#   test/deformation_gradient_test.cpp
-# )
-# target_link_libraries(
-#   deformation_gradient_test
-#   GTest::gtest_main
-#   silk
-# )
-
-# # TODO: remove this duplication, e.g. with a function similar to above.
-# add_executable(
-#   energies_test
-#   test/energies_test.cpp
-# )
-# target_link_libraries(
-#   energies_test
-#   GTest::gtest_main
-#   silk
-# )
-
-# include(GoogleTest)
-# gtest_discover_tests(deformation_gradient_test)
-# gtest_discover_tests(energies_test)
