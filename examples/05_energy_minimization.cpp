@@ -14,33 +14,38 @@
 
 #include <TinyAD/ScalarFunction.hh>
 
-void callback() {
-}
-
-int main() {
+void setup_scene(Eigen::MatrixXd &V,
+                 Eigen::MatrixXd &V2,
+                 Eigen::MatrixXi &T,
+                 Eigen::VectorXd &A2,
+                 std::vector<Eigen::Matrix2d> &Dm_inv) {
   // Create a triangulated grid in 2D
-  Eigen::MatrixXd V2;  // Vertex positions in 2D
-  Eigen::MatrixXi T;   // Triangles, I'm abbreviating as T here to reserve F for the deformation gradient
   igl::triangulated_grid(5, 5, V2, T);
 
   // Add a z coordinate to make the triangulated grid 3D
-  Eigen::MatrixXd V = Eigen::MatrixXd::Zero(V2.rows(), 3);
+  V = Eigen::MatrixXd::Zero(V2.rows(), 3);
   V.leftCols(2) = V2;
 
   // Option 3. Quadratic deformation: z = x^2
   V.col(2) = V.col(0).array().square();
 
-  // Compute the deformation gradients
-  std::vector<Eigen::Matrix<double, 3, 2>> F = silk::deformation_gradients(V, T, V2);
-  Eigen::VectorXd A2;  // area in 2D of rest shape triangles
+  // Compute the rest areas
   igl::doublearea(V2, T, A2);
   A2 = 0.5 * A2.array();
 
   // Created the rest shape matrices and inverted them
   std::vector<Eigen::Matrix2d> Dm = silk::rest_shapes(V2, T);
-  std::vector<Eigen::Matrix2d> Dm_inv = silk::inverse(Dm);
+  Dm_inv = silk::inverse(Dm);
+}
 
-  Eigen::VectorXd K = Eigen::VectorXd::Constant(T.rows(), 1.0);  // Stretch stiffness for each triangle
+int main() {
+  Eigen::MatrixXd V;   // Vertex positions in 3D
+  Eigen::MatrixXd V2;  // Vertex positions in 2D
+  Eigen::MatrixXi T;   // Triangles, not we abbreviate as T here to reserve F for the deformeation gradient
+  Eigen::VectorXd A2;  // Triangle areas in 2D
+  std::vector<Eigen::Matrix2d> Dm_inv;  // Inverse rest shape matrices
+  setup_scene(V, V2, T, A2, Dm_inv);
+  double k = 1.0;  // Stretch stiffness, uniform for all triangles
 
   // TinyAD usage example for per-triangle energy using the deformation gradient
   // This is a bit more verbose than the simple for each loop in 02_deformation.cpp, however TinyAD can now provide us
@@ -55,7 +60,6 @@ int main() {
 
     Eigen::Matrix<ST, 3, 2> F = silk::deformation_gradient(x0, x1, x2, Dm_inv[i]);
     double a = A2(i);                   // area of the rest shape triangle
-    double k = K(i);                    // stretch stiffness of the triangle
     ST E = k * silk::stretch_bw(F, a);  // stretch energy of the triangle
     return E;
   });
