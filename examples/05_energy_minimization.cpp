@@ -7,11 +7,15 @@
 #include "silk/deformation/deformation_gradient.hh"
 #include "silk/deformation/rest_shape.hh"
 #include "silk/energy/baraff_witkin.hh"
+#include "silk/gui/frame_player.hh"
 #include "silk/math/flatten.hh"
 #include "silk/math/inverse.hh"
 #include "silk/meshes/right_triangle.hh"
 
 #include <TinyAD/ScalarFunction.hh>
+
+void callback() {
+}
 
 int main() {
   // Create a triangulated grid in 2D
@@ -50,25 +54,44 @@ int main() {
     Eigen::Vector3<ST> x2 = element.variables(T(i, 2));
 
     Eigen::Matrix<ST, 3, 2> F = silk::deformation_gradient(x0, x1, x2, Dm_inv[i]);
-    double a = A2(i); // area of the rest shape triangle
-    double k = K(i);  // stretch stiffness of the triangle
+    double a = A2(i);                   // area of the rest shape triangle
+    double k = K(i);                    // stretch stiffness of the triangle
     ST E = k * silk::stretch_bw(F, a);  // stretch energy of the triangle
     return E;
   });
 
-  Eigen::VectorXd x = silk::flatten(V);
-  auto [f, g, H_proj] = func.eval_with_hessian_proj(x);
+  std::vector<Eigen::MatrixXd> V_hist;  // history of vertex positions
+  V_hist.push_back(V);
 
-  Eigen::MatrixXd forces = -silk::unflatten(g);
+  // Gradient descent
+  int num_iterations = 100;
+  for (int i = 0; i < num_iterations; i++) {
+    Eigen::VectorXd x = silk::flatten(V);
+    auto [f, g, H_proj] = func.eval_with_hessian_proj(x);
+    Eigen::MatrixXd forces = -silk::unflatten(g);
+    V += 0.1 * forces;
+    V_hist.push_back(V);
+  }
 
+  // PolyScope configuration
   polyscope::init();
   polyscope::view::upDir = polyscope::UpDir::ZUp;
+  polyscope::options::automaticallyComputeSceneExtents = false;
+
+  // First registration of the meshes, to set some options
   auto *mesh3D = polyscope::registerSurfaceMesh("Triangulated Grid", V, T);
-  mesh3D->addVertexVectorQuantity("Forces", forces);
   mesh3D->setEdgeWidth(1.0);
 
   auto *mesh2D = polyscope::registerSurfaceMesh2D("Triangulated Grid 2D", V2, T);
   mesh2D->setTransparency(0.5);
   mesh2D->setEdgeWidth(1.0);
+
+  // Callback that updates the mesh positions of the 3D mesh
+  int num_frames = V_hist.size();
+  polyscope::state::userCallback = [&]() -> void {
+    int i = silk::FramePlayer(num_frames);
+    polyscope::registerSurfaceMesh("Triangulated Grid", V_hist[i], T);
+  };
+
   polyscope::show();
 }
